@@ -2592,7 +2592,7 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
             bool any = false;
             for (const R3DViewport& v : scene_->viewports) {
                 if (v.world) continue;
-                struct M { uint32_t color, flags, tex; int count; };
+                struct M { uint32_t color, flags, tex; int count; float n[3], u0, u1, v0, v1, z; };
                 std::vector<M> ms;
                 bool hud = false;
                 for (int pass = 0; pass < 2; pass++) {
@@ -2603,8 +2603,22 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
                         uint32_t fl = q.flags | (pass ? 0x80000000u : 0u);
                         auto it = std::find_if(ms.begin(), ms.end(),
                                                [&](const M& m) { return m.color == q.color && m.flags == fl && m.tex == q.tex; });
-                        if (it != ms.end()) it->count++;
-                        else if (ms.size() < 16) ms.push_back({q.color, fl, q.tex, 1});
+                        if (it != ms.end()) {
+                            it->count++;
+                        } else if (ms.size() < 16) {
+                            ms.push_back({q.color, fl, q.tex, 0, {0, 0, 0}, 1e9f, -1e9f, 1e9f, -1e9f, 0});
+                            it = ms.end() - 1;
+                            it->count = 1;
+                        } else {
+                            continue;
+                        }
+                        for (int k = 0; k < 3; k++) {
+                            const R3DVertex& e = scene_->vertices[first + t + k];
+                            for (int c = 0; c < 3; c++) it->n[c] += e.nrm[c];
+                            it->u0 = std::min(it->u0, e.uv[0]), it->u1 = std::max(it->u1, e.uv[0]);
+                            it->v0 = std::min(it->v0, e.uv[1]), it->v1 = std::max(it->v1, e.uv[1]);
+                            it->z += e.pos[2];
+                        }
                     }
                 }
                 if (!hud) continue;
@@ -2615,6 +2629,13 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
                 for (const M& m : ms) {
                     printf("[hud]   %3d x colour %08X flags %08X%s tex %08X (format %u)\n", m.count, m.color,
                            m.flags & 0x7FFFFFFFu, m.flags & 0x80000000u ? " see-through" : "", m.tex, m.tex >> 28);
+                    {   // the light r3d.frag gives it: sun . normal (clamped) x intensity + ambient
+                        float k = 1.0f / float(3 * m.count);
+                        float nx = m.n[0] * k, ny = m.n[1] * k, nz = m.n[2] * k;
+                        float s = std::max(0.0f, std::min(1.0f, v.sun[0] * nx + v.sun[1] * ny + v.sun[2] * nz));
+                        printf("[hud]       average normal (%.2f %.2f %.2f), z %.1f, uv %.2f..%.2f x %.2f..%.2f, light %.2f\n",
+                               nx, ny, nz, m.z * k, m.u0, m.u1, m.v0, m.v1, s * v.sun_intensity * light_gain_ + v.ambient);
+                    }
                     if (!(m.flags & R3D_TEXTURED) || !texture_staging_.mapped) continue;
                     // The texture's base level as the GPU gets it (the staging copy of
                     // texture RAM): raw words, and for format 0 (ARGB1555) its average

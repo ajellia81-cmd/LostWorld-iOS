@@ -1999,7 +1999,7 @@ void App::update_intro() {
 #ifndef _WIN32
 // iOS port: the touch controls' state for this frame, then their pointer and
 // keys, read by poll_keyboard_mouse as a mouse's; PAUSE and BACK are Esc
-// iOS port, a measurement (once, in the first stage played; save/bench_v2
+// iOS port, a measurement (once, in the first stage played; save/bench_v3
 // marks it done): what each effect costs the GPU on this phone. The scene
 // changes far more than any effect does, so each effect is measured against
 // the settings as they are in the same moments: it is turned off and on
@@ -2010,27 +2010,25 @@ void App::update_bench() {
         const char* name;
         void (*set)(Options&);
     };
+    // (bench_v2 measured the anisotropic filtering, surface detail, haze,
+    // shadows, ambient occlusion, soft particles, HDR and rim light)
     static const Step STEPS[] = {
-        {"anisotropic filtering off", [](Options& o) { o.aniso = 0; }},
-        {"anisotropic filtering 2x", [](Options& o) { o.aniso = 2; }},
-        {"anisotropic filtering 4x", [](Options& o) { o.aniso = 4; }},
-        {"surface detail off", [](Options& o) { o.relief = false; }},
-        {"distance haze off", [](Options& o) { o.haze = 0; }},
-        {"sun shadows off", [](Options& o) { o.shadows = false; }},
-        {"ambient occlusion off", [](Options& o) { o.ao = 0; }},
-        {"soft particles off", [](Options& o) { o.soft = false; }},
-        {"HDR lighting off", [](Options& o) { o.hdr = false; }},
-        {"rim light off", [](Options& o) { o.rim = false; }},
+        {"3D at 50% (pixel bound?)", [](Options& o) { o.supersample = 0.5f; }},
+        {"3D at 75%", [](Options& o) { o.supersample = 0.75f; }},
+        {"rain off", [](Options& o) { o.rain = 0; }},
         {"modern torch off", [](Options& o) { o.modern_torch = false; }},
         {"sharpening off", [](Options& o) { o.sharpen = false; }},
         {"xBR 2D off", [](Options& o) { o.pixel_2d = true; }},
         {"light shafts off", [](Options& o) { o.shafts = false; }},
-        {"rain off", [](Options& o) { o.rain = 0; }},
+        {"bloom off", [](Options& o) { o.bloom = 0; }},
+        {"everything above off", [](Options& o) {
+             o.ao = 0, o.relief = false, o.soft = false, o.rim = false, o.hdr = false, o.haze = 0, o.aniso = 4;
+         }},
     };
     constexpr int COUNT = int(sizeof(STEPS) / sizeof(STEPS[0]));
     constexpr double HALF = 0.6, SETTLE = 0.2;   // each half, and its first part not counted
     constexpr int HALVES = 8;
-    static int step = file_exists("save/bench_v2") || !g_opt.menu ? COUNT : -1;
+    static int step = file_exists("save/bench_v3") || !g_opt.menu ? COUNT : -1;
     static Options base;
     static double half_from = 0;
     static int half = 0;
@@ -2082,7 +2080,7 @@ void App::update_bench() {
         Options was = g_opt;
         g_opt = base;
         apply_video_options(&was);
-        if (FILE* f = fopen("save/bench_v2", "w")) fclose(f);
+        if (FILE* f = fopen("save/bench_v3", "w")) fclose(f);
         printf("[bench] done; the settings are as they were\n");
     }
 }
