@@ -1,9 +1,13 @@
 # Builds LostWorld.ipa on a GitHub macOS runner (platform/ios/build.sh), for
 # LiveContainer. Run it from the Actions tab (Run workflow).
 #
-# The ROM: upload lostwsga.zip once to a release of this (private) repository
-# tagged "rom". It never goes into the repository itself. The .ipa contains
-# it, so keep this repository private and the build to yourself (LICENSE).
+# This repository holds only source code and may be public. The ROM and the
+# built app stay in a PRIVATE repository (PRIVATE_REPO below): the ROM in its
+# release tagged "rom", each new LostWorld.ipa in its release tagged
+# "latest". The secret PRIVATE_REPO_TOKEN is a fine-grained token with
+# Contents: read and write on that repository only. Nothing built is
+# uploaded here: a public repository's artifacts can be downloaded by anyone,
+# and LICENSE forbids sharing builds and the ROM.
 #
 # "check" builds the app against stand-in code instead (no ROM needed): it
 # only tells whether the port compiles and links for iOS.
@@ -20,6 +24,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  PRIVATE_REPO: ajellia81-cmd/LostWorld-iOS-private
 
 concurrency:
   group: ios-build
@@ -38,13 +45,14 @@ jobs:
           cmake --version | head -1
           xcodebuild -version
 
-      - name: ROM (release "rom")
+      - name: ROM (private repository, release "rom")
         if: inputs.mode == 'ipa'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
-          if ! gh release download rom --pattern lostwsga.zip --dir . ; then
-            echo "::error::No lostwsga.zip in a release tagged 'rom'. Create one (Releases > Draft a new release, tag: rom) and attach lostwsga.zip."
+          if [ -z "$GH_TOKEN" ]; then echo "::error::The secret PRIVATE_REPO_TOKEN is missing."; exit 1; fi
+          if ! gh release download rom -R "$PRIVATE_REPO" --pattern lostwsga.zip --dir . ; then
+            echo "::error::No lostwsga.zip in the release tagged 'rom' of the private repository (or the token cannot read it)."
             exit 1
           fi
           ls -l lostwsga.zip
@@ -67,11 +75,17 @@ jobs:
           LW_NO_ROM_IN_APP: ${{ inputs.mode == 'check' && '1' || '' }}
         run: bash platform/ios/build.sh lostwsga.zip
 
-      - name: LostWorld.ipa
+      - name: LostWorld.ipa (private repository, release "latest")
         if: inputs.mode == 'ipa'
-        uses: actions/upload-artifact@v4
-        with:
-          name: LostWorld-ipa
-          path: out/ios/LostWorld.ipa
-          retention-days: 7
-          compression-level: 0
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          gh release view latest -R "$PRIVATE_REPO" >/dev/null 2>&1 ||
+            gh release create latest -R "$PRIVATE_REPO" --title "LostWorld.ipa" --notes "The latest build (replaced by each run)."
+          gh release upload latest out/ios/LostWorld.ipa -R "$PRIVATE_REPO" --clobber
+          gh release edit latest -R "$PRIVATE_REPO" --notes "Built from ${GITHUB_SHA::7} (run ${GITHUB_RUN_NUMBER})."
+          echo "::notice::LostWorld.ipa uploaded to the private repository's release 'latest'"
+        # never published here
+      - name: Clean up
+        if: always()
+        run: rm -f lostwsga.zip out/ios/LostWorld.ipa

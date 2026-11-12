@@ -27,15 +27,16 @@ ROM을 앱에 넣고 싶지 않으면 `LW_NO_ROM_IN_APP=1`을 주세요. 그 경
 ## GitHub에서 빌드 (Mac 없이)
 
 이 저장소의 Actions가 GitHub의 macOS 서버에서 같은 스크립트로 .ipa를 만들어요 (`.github/workflows/ios.yml`).
+이 저장소에는 소스 코드만 있어서 공개해도 돼요. ROM과 만든 앱은 **비공개 저장소**(`LostWorld-iOS-private`)에만 둬요.
 
-1. **ROM 올리기 (한 번만)**: Releases > Draft a new release에서 태그를 `rom`으로 정하고, `lostwsga.zip`을 첨부해서
-   공개(Publish)해요. 저장소가 비공개라 릴리스도 본인만 볼 수 있어요.
-2. **빌드**: Actions > iOS build > Run workflow를 누르고 `ipa`를 골라요.
-3. **받기**: 끝난 실행 화면 아래쪽 Artifacts의 `LostWorld-ipa`를 받아 압축을 풀면 `LostWorld.ipa`가 나와요 (7일 보관).
+1. **비공개 저장소 (한 번만)**: README를 넣어 만들고, 태그 `rom` 릴리스에 `lostwsga.zip`을 첨부해요.
+2. **토큰 (한 번만)**: Fine-grained 토큰을 그 저장소에만, Contents: Read and write 권한으로 만들어
+   이 저장소의 Actions 시크릿 `PRIVATE_REPO_TOKEN`에 넣어요.
+3. **빌드**: Actions > iOS build > Run workflow를 누르고 `ipa`를 골라요.
+4. **받기**: 비공개 저장소의 릴리스 `latest`에 `LostWorld.ipa`가 올라와요 (빌드할 때마다 바뀌어요).
 
 `check`를 고르면 ROM 없이 iOS용으로 컴파일·링크까지만 확인해요.
-비공개 저장소는 GitHub Free 기준 매달 macOS 약 190분까지 무료이고, 다 쓰면 결제 수단이 없는 한 다음 달까지 빌드만 멈춰요.
-ROM이 든 .ipa는 본인만 쓰고 공유하지 마세요 (LICENSE).
+앱 안에는 ROM에서 만든 게임 코드가 들어 있어서 공개된 곳에 올리면 안 돼요 (LICENSE). 그래서 결과물을 이 저장소에 올리지 않아요.
 
 ## LiveContainer로 설치
 
