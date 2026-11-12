@@ -166,32 +166,6 @@ static void fit_screen_aspect(HWND hwnd) {
 }
 #endif
 
-#ifndef _WIN32
-// iOS port: what the phone runs at 120 Hz without heating up too soon. On
-// an iPhone's 2868 x 1320 screen 67% is ~1920 x 880 (460 pixels per inch)
-// with sharpening; the sun shadows, haze, bloom, HDR and rim light stay.
-// Off: what costs every pixel at 120 Hz for little on a small screen (MSAA,
-// xBR on the 2D layers, ambient occlusion, light shafts, soft particles,
-// surface detail, the procedural sky's composition). Each one is back in
-// OPTIONS > DISPLAY for whoever has the headroom
-static void phone_quality(FrontendSettings& s) {
-    s.smooth = true;
-    s.half_rate = false;
-    s.scale = 67;
-    s.aa = 2;   // MSAA off
-    s.aniso = 4;
-    s.smooth_2d = false;
-    s.ray_tracing = 0;
-    s.ao = false;
-    s.shadows = true;
-    s.shafts = false;
-    s.soft = false;
-    s.sky = false;
-    s.relief = false;
-    s.bloom = 1;
-    s.sharpen = true;
-}
-#endif
 
 // The gun covers the whole 3D view, also the side bands of a wide one: how
 // far it reaches beyond the 4:3 screen (each new picture, as the window may
@@ -1341,18 +1315,22 @@ bool App::init(int argc, char** argv, bool first_start) {
         quality_options(ini, g_opt);   // what QUALITY sets, now from the level picked
     }
 #ifndef _WIN32
-    // iOS port: the phone's own QUALITY, once (on the first start, and over
-    // the LOW a first start picked before it existed): SMOOTH MOTION at the
-    // full 120 Hz, paid for where a phone's GPU spends the most (fill rate
-    // and memory bandwidth) and the eye on a small screen sees the least
-    if (g_opt.menu && (first_start || (!file_exists("save/phone_quality") && ini.quality() == FrontendSettings::LOW))) {
-        phone_quality(ini);
+    // iOS port: an iPhone's GPU runs the game at full quality, but MoltenVK
+    // reports it as integrated and a first start picked LOW (half rate, 75%).
+    // Once (first start, an automatic LOW, or the phone settings of an
+    // earlier build): ULTRA, the 3D at every refresh, 100% resolution
+    if (g_opt.menu && !file_exists("save/ios_quality_v2") &&
+        (first_start || ini.quality() == FrontendSettings::LOW || file_exists("save/phone_quality"))) {
+        ini.set_quality(FrontendSettings::ULTRA);
+        ini.smooth = true;
+        ini.half_rate = false;
+        ini.scale = 100;
         quality_options(ini, g_opt);
-        g_opt.interp = ini.smooth;
+        g_opt.interp = true;
         ini.save("save/settings.ini");
-        if (FILE* f = fopen("save/phone_quality", "w")) fclose(f);
-        printf("[video] phone quality: 3D at every refresh, %d%% resolution\n", ini.scale);
+        printf("[video] iPhone: ULTRA quality, 3D at every refresh, 100%% resolution\n");
     }
+    if (FILE* f = fopen("save/ios_quality_v2", "w")) fclose(f);
 #endif
     if (!renderer.init(presenter, g_opt.supersample, g_opt.msaa, g_opt.aniso, g_opt.dlaa)) {
         fprintf(stderr, "Could not start the 3D renderer on %s (see the [vulkan] line above)\n",

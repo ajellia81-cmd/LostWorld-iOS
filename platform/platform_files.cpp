@@ -46,6 +46,9 @@ void platform_prepare_files() {
         dup2(fileno(stdout), fileno(stderr));
     }
     for (const char* d : {"save", "out", "data", "third_party"}) mkdir(d, 0755);
+    // The GPU time of each pass, every 300 images, in the log (the renderer's
+    // LW_GPUTIME): with the [timing] line it shows what grows as the game slows
+    setenv("LW_GPUTIME", "1", 0);
     // The bundle's folders, linked again at every launch: the bundle moves when
     // the app is reinstalled or updated. A real folder of the player's (their
     // own textures/) is left alone.
