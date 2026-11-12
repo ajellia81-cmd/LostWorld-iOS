@@ -72,7 +72,9 @@ jobs:
       - name: Build
         env:
           LW_SKIP_RECOMP: ${{ inputs.mode == 'check' && '1' || '' }}
-          LW_NO_ROM_IN_APP: ${{ inputs.mode == 'check' && '1' || '' }}
+          # The ROM is only read to build (the recompiled code); the app does not carry it:
+          # put lostwsga.zip in the app's Documents folder on the phone
+          LW_NO_ROM_IN_APP: '1'
         run: bash platform/ios/build.sh lostwsga.zip
 
       - name: LostWorld.ipa (private repository, release "latest")
