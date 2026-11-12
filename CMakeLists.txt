@@ -302,6 +302,8 @@ elseif(APPLE)
         message(FATAL_ERROR "MOLTENVK_LIB not set (platform/ios/build.sh downloads MoltenVK)")
     endif()
     target_compile_definitions(LostWorld PRIVATE VK_NO_PROTOTYPES VK_USE_PLATFORM_METAL_EXT)
+    # volk's function pointers renamed, clear of MoltenVK's functions (volk_prefix.h)
+    target_compile_options(LostWorld PRIVATE "SHELL:-include ${CMAKE_SOURCE_DIR}/platform/compat/volk_prefix.h")
     target_link_libraries(LostWorld PRIVATE SDL3::SDL3-static ${MOLTENVK_LIB}
         "-framework Metal" "-framework QuartzCore" "-framework IOSurface" "-framework Foundation"
         "-framework CoreGraphics" "-framework UIKit")
