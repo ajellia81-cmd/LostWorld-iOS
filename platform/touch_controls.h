@@ -42,6 +42,11 @@ public:
     // The overlay picture (w x h BGRA, premultiplied) when it changed since the
     // last call; false when it did not. An empty picture hides it
     bool draw(std::vector<uint32_t>& px, int& w, int& h);
+    bool any_shown() const {
+        for (int b = 0; b < BUTTON_COUNT; b++)
+            if (shown(Button(b))) return true;
+        return false;
+    }
     void shutdown();
 
 private:

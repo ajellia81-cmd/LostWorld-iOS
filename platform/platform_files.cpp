@@ -33,6 +33,13 @@ void platform_prepare_files() {
         chdir(game.c_str());
         return;
     }
+    // What the game prints goes to lostworld.log there (a pipe nobody reads
+    // would hold the game up once full); the previous run's is kept
+    rename("lostworld.log", "lostworld_previous.log");
+    if (freopen("lostworld.log", "w", stdout)) {
+        setvbuf(stdout, nullptr, _IOLBF, 0);
+        dup2(fileno(stdout), fileno(stderr));
+    }
     for (const char* d : {"save", "out", "data", "third_party"}) mkdir(d, 0755);
     // The bundle's folders, linked again at every launch: the bundle moves when
     // the app is reinstalled or updated. A real folder of the player's (their

@@ -3,6 +3,9 @@
 // window, the renderer and the menus are in app.cpp; runtime.h is the seam.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#ifndef _WIN32
+#include <time.h>
+#endif
 #include <windows.h>
 
 #include <algorithm>
@@ -802,7 +805,16 @@ void pace_frame() {
         return;
     }
     while (elapsed < target) {
+#ifdef _WIN32
         if (target - elapsed > 0.002) Sleep(1);
+#else
+        // iOS port: sleeps there are precise to well under a millisecond, so
+        // the spin at the end (heat on a phone) is a fraction of one
+        if (target - elapsed > 0.0006) {
+            timespec ts{0, long((target - elapsed - 0.0004) * 1e9)};
+            nanosleep(&ts, nullptr);
+        }
+#endif
         QueryPerformanceCounter(&now);
         elapsed = double(now.QuadPart - g_start_time.QuadPart) / double(g_qpf.QuadPart);
     }

@@ -488,9 +488,11 @@ struct DisplayClock {
                 EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm) && dm.dmDisplayFrequency > 1)
                 monitor_hz = dm.dmDisplayFrequency;
 #else
-            // iOS port: the screen's rate (120 Hz on a ProMotion iPhone)
+            // iOS port: the screen's rate, at most 60 Hz: without
+            // CADisableMinimumFrameDurationOnPhone (Info.plist) iOS shows a
+            // Metal layer at 60 Hz on a 120 Hz ProMotion screen
             const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(reinterpret_cast<SDL_Window*>(hwnd)));
-            if (dm && dm->refresh_rate > 1) monitor_hz = dm->refresh_rate;
+            if (dm && dm->refresh_rate > 1) monitor_hz = std::min(double(dm->refresh_rate), 60.0);
 #endif
         }
         DWM_TIMING_INFO info{};
@@ -1992,8 +1994,8 @@ void App::update_touch() {
         }
     }
     int tw = 0, th = 0;
-    if (touch_shown && touch.draw(touch_pixels, tw, th)) {
-        if (tw > 0 && th > 0) touch_layer.set_image(touch_pixels.data(), uint32_t(tw), uint32_t(th));
+    if (touch_shown && touch.draw(touch_pixels, tw, th)) {   // (none shown: not drawn at all)
+        if (tw > 0 && th > 0 && touch.any_shown()) touch_layer.set_image(touch_pixels.data(), uint32_t(tw), uint32_t(th));
         else touch_layer.hide();
     }
 }
