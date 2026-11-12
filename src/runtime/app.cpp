@@ -874,6 +874,7 @@ struct App {
     bool touch_shown = false;
     void update_touch();
     bool app_inactive = false;
+    void update_bench();
     void on_app_inactive();
     void on_app_active();
 #endif
@@ -1998,7 +1999,84 @@ void App::update_intro() {
 #ifndef _WIN32
 // iOS port: the touch controls' state for this frame, then their pointer and
 // keys, read by poll_keyboard_mouse as a mouse's; PAUSE and BACK are Esc
+// iOS port, a measurement (once, in the first stage played; save/bench_v1
+// marks it done): what each effect costs the GPU on this phone. Every few
+// seconds of play one effect is turned off, the GPU frame time measured, and
+// the settings put back; the log gets a [bench] line per effect.
+void App::update_bench() {
+    struct Step {
+        const char* name;
+        void (*set)(Options&);
+    };
+    static const Step STEPS[] = {
+        {"everything on (as set)", [](Options&) {}},
+        {"anisotropic filtering off", [](Options& o) { o.aniso = 0; }},
+        {"anisotropic filtering 2x", [](Options& o) { o.aniso = 2; }},
+        {"surface detail off", [](Options& o) { o.relief = false; }},
+        {"distance haze off", [](Options& o) { o.haze = 0; }},
+        {"sun shadows off", [](Options& o) { o.shadows = false; }},
+        {"ambient occlusion off", [](Options& o) { o.ao = 0; }},
+        {"soft particles off", [](Options& o) { o.soft = false; }},
+        {"bloom off", [](Options& o) { o.bloom = 0; }},
+        {"procedural sky off", [](Options& o) { o.sky_procedural = false; }},
+        {"HDR lighting off", [](Options& o) { o.hdr = false; }},
+        {"rim light off", [](Options& o) { o.rim = false; }},
+        {"modern torch off", [](Options& o) { o.modern_torch = false; }},
+        {"sharpening off", [](Options& o) { o.sharpen = false; }},
+        {"xBR 2D off", [](Options& o) { o.pixel_2d = true; }},
+        {"3D at 75%", [](Options& o) { o.supersample = 0.75f; }},
+        {"everything on again", [](Options&) {}},
+    };
+    constexpr int COUNT = int(sizeof(STEPS) / sizeof(STEPS[0]));
+    constexpr double SETTLE = 1.5, MEASURE = 3.0;
+    static int step = file_exists("save/bench_v1") || !g_opt.menu ? COUNT : -1;
+    static Options base;
+    static double phase_from = 0;
+    static bool measuring = false;
+    static double base_ms = 0;
+    if (step >= COUNT) return;
+    double now = now_seconds();
+    bool playing = !frontend.active() && !intro && g_inputs.p[0].playing && !g_hold;
+    if (!playing) {   // waits for play; a step interrupted starts over
+        if (step >= 0) phase_from = now, measuring = false;
+        return;
+    }
+    int frames = 0;
+    if (step < 0) {   // start
+        base = g_opt;
+        step = 0;
+        phase_from = now;
+        measuring = false;
+        printf("[bench] measuring what each effect costs (a minute of play, once)\n");
+        return;
+    }
+    if (!measuring && now - phase_from >= SETTLE) {
+        renderer.take_gpu_ms(frames);   // from now on
+        measuring = true;
+        phase_from = now;
+        return;
+    }
+    if (!measuring || now - phase_from < MEASURE) return;
+    double ms = renderer.take_gpu_ms(frames);
+    double avg = frames ? ms / frames : 0;
+    if (step == 0) base_ms = avg;
+    printf("[bench] %-28s GPU %6.2f ms/frame (%+6.2f)  over %d frames\n", STEPS[step].name, avg, avg - base_ms, frames);
+    fflush(stdout);
+    Options was = g_opt;
+    step++;
+    g_opt = base;
+    if (step < COUNT) STEPS[step].set(g_opt);
+    apply_video_options(&was);
+    phase_from = now;
+    measuring = false;
+    if (step >= COUNT) {
+        if (FILE* f = fopen("save/bench_v1", "w")) fclose(f);
+        printf("[bench] done; the settings are as they were\n");
+    }
+}
+
 void App::update_touch() {
+    update_bench();
     bool any_pad = false;
     for (int i = 0; i < Gamepads::MAX; i++) any_pad = any_pad || g_pads.pad(i).connected;
     Frontend::Screen sc = frontend.screen();

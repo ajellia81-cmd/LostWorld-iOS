@@ -257,6 +257,20 @@ private:
     // hair further away than they draw, so they pass the test): the costly
     // shading then runs once per pixel instead of for every hidden layer
     VkPipeline early_z_ = VK_NULL_HANDLE;
+
+public:
+    // The whole GPU frame time summed since the last call (LW_GPUTIME), and
+    // how many frames: for the iOS port's effect benchmark (app.cpp)
+    double take_gpu_ms(int& frames) {
+        double s = bench_ms_;
+        frames = bench_frames_;
+        bench_ms_ = 0, bench_frames_ = 0;
+        return s;
+    }
+
+private:
+    double bench_ms_ = 0;
+    int bench_frames_ = 0;
     void bind_scene_image(VkImageView view, VkImageView alpha);
     void update_atmosphere(const ScreenLayout& lay, uint32_t target_w, uint32_t target_h);
     bool back_layer_extended() const;

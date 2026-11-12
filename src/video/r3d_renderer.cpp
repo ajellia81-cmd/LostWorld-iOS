@@ -2583,34 +2583,40 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
     update_atmosphere(f.lay, f.out_w, f.out_h);
 #ifndef _WIN32
     // iOS port, a diagnosis: every 20 s, the 3D HUD (the ammo counter at the
-    // side) as drawn: its viewport's light and fog, and its first triangles
+    // side) as drawn: its viewports' light, and every distinct material in
+    // them (colour, flags, texture) with how many triangles have it
     {
         static double last = -100;
         double now = launch_seconds();
         if (scene_ && now - last > 20) {
+            bool any = false;
             for (const R3DViewport& v : scene_->viewports) {
                 if (v.world) continue;
-                int shown = 0;
-                for (int pass = 0; pass < 2 && shown < 3; pass++) {
+                struct M { uint32_t color, flags, tex; int count; };
+                std::vector<M> ms;
+                bool hud = false;
+                for (int pass = 0; pass < 2; pass++) {
                     uint32_t first = pass ? v.trans_first : v.opaque_first, count = pass ? v.trans_count : v.opaque_count;
-                    for (uint32_t t = 0; t + 2 < count && shown < 3; t += 3) {
+                    for (uint32_t t = 0; t + 2 < count; t += 3) {
                         const R3DVertex& q = scene_->vertices[first + t];
-                        if (!(q.flags & (R3D_HUD_LEFT | R3D_HUD_RIGHT))) continue;
-                        if (!shown) {
-                            last = now;
-                            printf("[hud] viewport prio %d: sun (%.2f %.2f %.2f) x %.2f, ambient %.2f, fog %.4f from %.2f colour "
-                                   "(%.2f %.2f %.2f) x %.2f, light gain %.2f\n",
-                                   v.priority, v.sun[0], v.sun[1], v.sun[2], v.sun_intensity, v.ambient, v.fog_density,
-                                   v.fog_start, v.fog_color[0], v.fog_color[1], v.fog_color[2], v.fog_ambient, light_gain_);
-                        }
-                        shown++;
-                        printf("[hud]  %s tri: colour %08X flags %08X tex %08X shade %.2f fog %.2f spec %.2f replace %u "
-                               "nrm (%.2f %.2f %.2f) z %.1f\n",
-                               pass ? "see-through" : "opaque", q.color, q.flags, q.tex, q.shade, q.fog, q.spec, q.replace,
-                               q.nrm[0], q.nrm[1], q.nrm[2], q.pos[2]);
+                        hud |= (q.flags & (R3D_HUD_LEFT | R3D_HUD_RIGHT)) != 0;
+                        uint32_t fl = q.flags | (pass ? 0x80000000u : 0u);
+                        auto it = std::find_if(ms.begin(), ms.end(),
+                                               [&](const M& m) { return m.color == q.color && m.flags == fl && m.tex == q.tex; });
+                        if (it != ms.end()) it->count++;
+                        else if (ms.size() < 16) ms.push_back({q.color, fl, q.tex, 1});
                     }
                 }
+                if (!hud) continue;
+                any = true;
+                printf("[hud] viewport prio %d at %.0f,%.0f %.0fx%.0f: sun x %.2f, ambient %.2f, fog %.4f, %u+%u triangles\n",
+                       v.priority, v.x, v.y, v.w, v.h, v.sun_intensity, v.ambient, v.fog_density, v.opaque_count / 3,
+                       v.trans_count / 3);
+                for (const M& m : ms)
+                    printf("[hud]   %3d x colour %08X flags %08X%s tex %08X (format %u)\n", m.count, m.color,
+                           m.flags & 0x7FFFFFFFu, m.flags & 0x80000000u ? " see-through" : "", m.tex, m.tex >> 28);
             }
+            if (any) last = now;
             fflush(stdout);
         }
     }
@@ -2671,6 +2677,8 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
                     last = t[i][0];
                 }
             gpu_sum_[0] += double(t[GPU_MARKS - 1][0] - t[0][0]) * timestamp_period_ * 1e-6;
+            bench_ms_ += double(t[GPU_MARKS - 1][0] - t[0][0]) * timestamp_period_ * 1e-6;
+            bench_frames_++;
             if (++gpu_frames_ == 300) {
                 static const char* const names[GPU_MARKS] = {"whole frame", "sky panorama", "ray tracing build",
                                                              "shadow map", "3D opaque", "ambient occlusion", "3D rest",
