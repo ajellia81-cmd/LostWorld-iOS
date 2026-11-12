@@ -332,6 +332,27 @@ void main() {
     // shadows; canopies and roofs high above would put whole scenes in the dark
     if (vp.fog_color.w < 0.0 && dot(view_pos, vp.sun.xyz) + vp.fog_color.x > vp.fog_color.y) discard;
 
+    // Depth-only passes: the sun's shadow map (fog_color.w < 0), the world's
+    // depth before the 3D pass (quality -2000) and the solid surfaces laid
+    // down first inside it (-3000, record_world). No colour comes out of them,
+    // so only the alpha rules of the opaque pass are worked out, and only what
+    // can be see-through samples its texture (the costliest part here)
+    if (vp.fog_color.w < 0.0 || vp.quality.x <= -2000.0) {
+        if (col.a < 1.0 / 32.0) discard;
+        bool see_through = (flags & (TEX_ALPHA | ALPHA_TEST)) != 0u;
+        if (vp.quality.x <= -3000.0) {   // solid surfaces only: the rest is drawn as it was
+            if (see_through) discard;
+            return;
+        }
+        if (!see_through) return;
+        vec4 st = (flags & TEXTURED) != 0u ? sample_texture(duv_dx, duv_dy) : vec4(1.0);
+        if ((flags & TEXTURED) != 0u && (flags & (TEX_ALPHA | ALPHA_TEST)) == 0u) st.a = 1.0;
+        if ((flags & ALPHA_TEST) != 0u && st.a < 32.0 / 255.0) discard;
+        float a = st.a * col.a;
+        if (a < 1.0 / 32.0 || ((flags & TEX_ALPHA) != 0u && a < 1.0)) discard;
+        return;
+    }
+
     vec4 t = vec4(1.0);
     if ((flags & TEXTURED) != 0u) {
         t = sample_texture(duv_dx, duv_dy);

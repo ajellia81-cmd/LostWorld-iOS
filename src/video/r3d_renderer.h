@@ -242,6 +242,7 @@ private:
         bool depth_only = false;               // no colour writes
         bool depth_attachment = false;         // the pass has a depth image this one leaves alone
         bool first_only = false;               // only the first colour attachment is written
+        bool depth_behind = false;             // depth written a little further away (early-Z)
         const VkSpecializationInfo* fs_spec = nullptr;   // specialization constants of the fragment shader
     };
     VkPipeline make_pipeline(const PipelineDesc& d);
@@ -252,6 +253,10 @@ private:
     // in tile memory only (memoryless). LW_TILE=0 turns it off
     bool tile_mode_ = false;
     VkPipeline ao_apply_inpass_ = VK_NULL_HANDLE;
+    // The solid surfaces' depth laid down first in the 3D pass (depth only, a
+    // hair further away than they draw, so they pass the test): the costly
+    // shading then runs once per pixel instead of for every hidden layer
+    VkPipeline early_z_ = VK_NULL_HANDLE;
     void bind_scene_image(VkImageView view, VkImageView alpha);
     void update_atmosphere(const ScreenLayout& lay, uint32_t target_w, uint32_t target_h);
     bool back_layer_extended() const;

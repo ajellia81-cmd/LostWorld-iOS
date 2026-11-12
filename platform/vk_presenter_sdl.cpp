@@ -214,6 +214,10 @@ bool VkPresenter::init(const char* title, int width, int height, bool with_ngx) 
 #ifdef __APPLE__
     // MoltenVK: Metal argument buffers carry the texture pack's descriptor array
     setenv("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS", "1", 0);
+    // Shaders compiled without Metal's fast math: with it a NaN or infinity
+    // (a fog factor, a 0 x infinity) need not clamp as on every other GPU, and
+    // parts of the 3D HUD (the ammo counter, the aim dot) came out black
+    setenv("MVK_CONFIG_FAST_MATH_ENABLED", "0", 0);
     volkInitializeCustom(lw_moltenvk_get_instance_proc_addr());
     inst_names.push_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
 #else

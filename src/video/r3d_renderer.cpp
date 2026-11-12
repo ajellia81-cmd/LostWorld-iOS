@@ -529,6 +529,11 @@ VkPipeline R3DRenderer::make_pipeline(const PipelineDesc& d) {
     rs.polygonMode = VK_POLYGON_MODE_FILL;
     rs.cullMode = VK_CULL_MODE_NONE;   // facing is decided on the CPU with the face normal
     rs.lineWidth = 1;
+    if (d.depth_behind) {   // reverse Z: smaller is further
+        rs.depthBiasEnable = VK_TRUE;
+        rs.depthBiasConstantFactor = -8.0f;
+        rs.depthBiasSlopeFactor = -1.0f;
+    }
     VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     ms.rasterizationSamples = d.samples;
     VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
@@ -668,6 +673,12 @@ bool R3DRenderer::create_pipelines() {
     sky_fields_pipe_ = make_pipeline({.vs = c_vs, .fs = sky_fs, .layout = sky_layout_, .color = VK_FORMAT_R8G8B8A8_UNORM});
     // The ambient occlusion multiplied in inside the 3D pass (tile_mode_):
     // made for that pass's images, writing the colour only
+    if (tile_mode_) {
+        PipelineDesc ez = world;
+        ez.depth_only = true;
+        ez.depth_behind = true;
+        early_z_ = make_pipeline(ez);
+    }
     if (tile_mode_)
         ao_apply_inpass_ = make_pipeline({.vs = c_vs, .fs = aoa_fs, .layout = ao_layout_, .color = VK_FORMAT_R16G16B16A16_SFLOAT,
                                           .samples = samples_, .motion = motion, .glow = glow_pass_, .multiply = true,
@@ -678,7 +689,8 @@ bool R3DRenderer::create_pipelines() {
     for (auto [p, name] : {std::pair{opaque_, "opaque"}, {translucent_, "translucent"}, {trans_depth_, "trans_depth"},
                            {shadow_, "shadow"}, {rays_, "rays"}, {compose_measure_, "compose_measure"},
                            {compose_, "compose"}, {bloom_, "bloom"}, {ao_pass_, "ao"}, {ao_apply_, "ao_apply"},
-                           {sky_fields_pipe_, "sky_fields"}, {tile_mode_ ? ao_apply_inpass_ : ao_apply_, "ao_apply_inpass"}})
+                           {sky_fields_pipe_, "sky_fields"}, {tile_mode_ ? ao_apply_inpass_ : ao_apply_, "ao_apply_inpass"},
+                           {tile_mode_ ? early_z_ : opaque_, "early_z"}})
         if (!p) {
             fprintf(stderr, "[vulkan] no %s pipeline%s\n", name, rt_.ready() ? " (ray tracing on)" : "");
             ok = false;
@@ -688,7 +700,7 @@ bool R3DRenderer::create_pipelines() {
 
 void R3DRenderer::destroy_pipelines() {
     for (VkPipeline* p : {&opaque_, &translucent_, &trans_depth_, &shadow_, &rays_, &compose_measure_, &compose_, &bloom_,
-                          &compose_glow_, &ao_pass_, &ao_apply_, &sky_fields_pipe_, &ao_apply_inpass_})
+                          &compose_glow_, &ao_pass_, &ao_apply_, &sky_fields_pipe_, &ao_apply_inpass_, &early_z_})
         if (*p) vkDestroyPipeline(dev_, *p, nullptr), *p = VK_NULL_HANDLE;
 }
 
@@ -1857,7 +1869,7 @@ void R3DRenderer::record_shadows(const Frame& f) {
             memcpy(pc.proj, shadow_matrix_, 64);
             pc.params[3] = before;
             pc.quality[0] = 1.0f;   // opaque rules (alpha test), no MSAA coverage
-            pc.quality[1] = aniso_;
+            pc.quality[1] = tile_mode_ ? 0.0f : aniso_;   // (tile_mode_: the alpha from one bilinear tap)
             pc.quality[3] = interp_;   // sun.w = 0: no lighting, so no shadow lookup while drawing it
             // Shadow pass marker, and only casters up to this height above the ground
             for (int i = 0; i < 3; i++) pc.sun[i] = shadow_up_[i];
@@ -2015,7 +2027,11 @@ void R3DRenderer::record_world(const Frame& f) {
                     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r3d_layout_, 0, 1, &r3d_set_, 0,
                                             nullptr);
                 }
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pass == 0 ? opaque_ : translucent_);
+                // tile_mode_: the solid surfaces' depth first (r3d.frag, -3000)
+                const bool early_z = tile && pass == 0;
+                for (int sub = early_z ? 0 : 1; sub < 2; sub++) {
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                  sub == 0 ? early_z_ : pass == 0 ? opaque_ : translucent_);
                 for (size_t k = i; k < j; k++) {
                     const R3DViewport& v = vps[k];
                     uint32_t count = pass == 0 ? v.opaque_count : v.trans_count;
@@ -2069,11 +2085,20 @@ void R3DRenderer::record_world(const Frame& f) {
                         vkCmdDraw(cmd, count, 1, v.trans_first, 0);
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, translucent_);
                     }
+                    if (sub == 0) {
+                        if (!count) continue;
+                        pc.quality[0] = -3000.0f;
+                        vkCmdPushConstants(cmd, r3d_layout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                           sizeof(pc), &pc);
+                        vkCmdDraw(cmd, count, 1, v.opaque_first, 0);
+                        continue;
+                    }
                     vkCmdPushConstants(cmd, r3d_layout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                        sizeof(pc), &pc);
                     vkCmdDraw(cmd, count, 1, pass == 0 ? v.opaque_first : v.trans_first, 0);
                     // Our rain falls among the world's see-through surfaces
                     if (rain_here) vkCmdDraw(cmd, uint32_t(rain_vertices_.size()), 1, uint32_t(vcount), 0);
+                }
                 }
             }
             i = j;
@@ -2171,7 +2196,7 @@ void R3DRenderer::record_world_prepass(const Frame& f, bool ao_on) {
         pc.params[2] = v.fog_start;
         pc.params[3] = f.before;
         pc.quality[0] = -2000.0f;   // r3d.frag: depth only, the opaque pass's rules
-        pc.quality[1] = aniso_;
+        pc.quality[1] = 0.0f;       // the alpha from one bilinear tap (the depth for occlusion only)
         pc.quality[2] = full ? 2.0f * lay.game_x0 / lay.view_w : 0.0f;
         pc.quality[3] = interp_;
         vkCmdPushConstants(cmd, r3d_layout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
