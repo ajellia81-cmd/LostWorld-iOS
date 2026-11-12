@@ -2581,6 +2581,40 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
             }
     record_uploads(f);
     update_atmosphere(f.lay, f.out_w, f.out_h);
+#ifndef _WIN32
+    // iOS port, a diagnosis: every 20 s, the 3D HUD (the ammo counter at the
+    // side) as drawn: its viewport's light and fog, and its first triangles
+    {
+        static double last = -100;
+        double now = launch_seconds();
+        if (scene_ && now - last > 20) {
+            for (const R3DViewport& v : scene_->viewports) {
+                if (v.world) continue;
+                int shown = 0;
+                for (int pass = 0; pass < 2 && shown < 3; pass++) {
+                    uint32_t first = pass ? v.trans_first : v.opaque_first, count = pass ? v.trans_count : v.opaque_count;
+                    for (uint32_t t = 0; t + 2 < count && shown < 3; t += 3) {
+                        const R3DVertex& q = scene_->vertices[first + t];
+                        if (!(q.flags & (R3D_HUD_LEFT | R3D_HUD_RIGHT))) continue;
+                        if (!shown) {
+                            last = now;
+                            printf("[hud] viewport prio %d: sun (%.2f %.2f %.2f) x %.2f, ambient %.2f, fog %.4f from %.2f colour "
+                                   "(%.2f %.2f %.2f) x %.2f, light gain %.2f\n",
+                                   v.priority, v.sun[0], v.sun[1], v.sun[2], v.sun_intensity, v.ambient, v.fog_density,
+                                   v.fog_start, v.fog_color[0], v.fog_color[1], v.fog_color[2], v.fog_ambient, light_gain_);
+                        }
+                        shown++;
+                        printf("[hud]  %s tri: colour %08X flags %08X tex %08X shade %.2f fog %.2f spec %.2f replace %u "
+                               "nrm (%.2f %.2f %.2f) z %.1f\n",
+                               pass ? "see-through" : "opaque", q.color, q.flags, q.tex, q.shade, q.fog, q.spec, q.replace,
+                               q.nrm[0], q.nrm[1], q.nrm[2], q.pos[2]);
+                    }
+                }
+            }
+            fflush(stdout);
+        }
+    }
+#endif
 
     // Motion vectors point to where each surface was in the previously
     // displayed image: the same game frame part way back, or the previous

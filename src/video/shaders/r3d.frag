@@ -108,9 +108,8 @@ float traced_shadow(vec3 n) {
 }
 #endif
 
-vec4 fetch(ivec2 base, ivec2 size, ivec2 c, uint fmt) {
-    c.x = wrap(c.x, size.x, (flags & MIRROR_U) != 0u);
-    c.y = wrap(c.y, size.y, (flags & MIRROR_V) != 0u);
+// c: already wrapped into the texture rectangle
+vec4 fetch(ivec2 base, ivec2 c, uint fmt) {
     ivec2 p = ivec2((base.x + c.x) & 2047, (base.y & 1024) | ((base.y + c.y) & 1023));
     vec4 t = decode(texelFetch(texture_ram, p, 0).r, fmt);
     // Polygons without texture alpha show every texel, including the ones
@@ -119,15 +118,17 @@ vec4 fetch(ivec2 base, ivec2 size, ivec2 c, uint fmt) {
     return t;
 }
 
-// Mip level positions inside a texture page (spec 6.4)
-const int MIP_X[12] = int[](0, 1024, 1536, 1792, 1920, 1984, 2016, 2032, 2040, 2044, 2046, 2047);
-const int MIP_Y[11] = int[](0, 512, 768, 896, 960, 992, 1008, 1016, 1020, 1022, 1023);
+// Mip level positions inside a texture page (spec 6.4): 0, 1024, 1536, 1792
+// ... across and 0, 512, 768 ... down, each level half the room left (worked
+// out rather than looked up in a table, which a GPU keeps in slow memory)
+int mip_x(int level) { return 2048 - (2048 >> level); }
+int mip_y(int level) { return 1024 - (1024 >> level); }
 
 // Bilinear sample of one mip level; st in level-0 texels. Premultiplied
 // result: the colour of transparent texels (often sky blue in the texture
 // data) must not bleed into the edges of foliage.
 vec4 bilinear(ivec2 base, ivec2 size, vec2 st, int level, uint fmt) {
-    ivec2 b = ivec2(MIP_X[level] + (base.x >> level), (base.y & 1024) | (MIP_Y[level] + ((base.y & 1023) >> level)));
+    ivec2 b = ivec2(mip_x(level) + (base.x >> level), (base.y & 1024) | (mip_y(level) + ((base.y & 1023) >> level)));
     ivec2 s = max(size >> level, ivec2(1));
     vec2 p = st / float(1 << level) - 0.5;
     ivec2 i0 = ivec2(floor(p));
@@ -144,10 +145,14 @@ vec4 bilinear(ivec2 base, ivec2 size, vec2 st, int level, uint fmt) {
             i0[k] = clamp(i0[k], first[k], first[k] + s[k] - 1);
             i1[k] = clamp(i1[k], first[k], first[k] + s[k] - 1);
         }
-    vec4 a = fetch(b, s, i0, fmt);
-    vec4 bb = fetch(b, s, ivec2(i1.x, i0.y), fmt);
-    vec4 c = fetch(b, s, ivec2(i0.x, i1.y), fmt);
-    vec4 d = fetch(b, s, i1, fmt);
+    // Each coordinate wrapped once (not once per tap)
+    bool mu = (flags & MIRROR_U) != 0u, mv = (flags & MIRROR_V) != 0u;
+    int x0 = wrap(i0.x, s.x, mu), x1 = wrap(i1.x, s.x, mu);
+    int y0 = wrap(i0.y, s.y, mv), y1 = wrap(i1.y, s.y, mv);
+    vec4 a = fetch(b, ivec2(x0, y0), fmt);
+    vec4 bb = fetch(b, ivec2(x1, y0), fmt);
+    vec4 c = fetch(b, ivec2(x0, y1), fmt);
+    vec4 d = fetch(b, ivec2(x1, y1), fmt);
     a.rgb *= a.a;
     bb.rgb *= bb.a;
     c.rgb *= c.a;
@@ -442,9 +447,9 @@ void main() {
         c.rgb += glint * atm.spot_color.rgb * TORCH_TINT;
         if ((flags & SPECULAR) != 0u) {
             uint shin = (flags >> 10) & 3u;
-            float powers[4] = float[](8.0, 16.0, 32.0, 64.0);
-            float scales[4] = float[](1.6, 1.6, 2.4, 3.2);
-            float f = pow(max(s, 0.0), powers[shin]) * scales[shin] * params.z * vp.sun.w *
+            float power = float(8u << shin);                          // 8, 16, 32, 64
+            float scale = shin < 2u ? 1.6 : 0.8 * float(shin + 1u);   // 1.6, 1.6, 2.4, 3.2
+            float f = pow(max(s, 0.0), power) * scale * params.z * vp.sun.w *
                       (atm.sunlight.z > 0.0 && (flags & WORLD) != 0u ? atm.sunlight.x : 1.0);
             c.rgb += f;
         }

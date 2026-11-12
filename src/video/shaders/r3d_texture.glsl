@@ -27,9 +27,11 @@ vec4 decode(uint t, uint fmt) {
 }
 
 // Wraps a texel coordinate inside the texture rectangle (repeat or mirror)
+// (The texture sizes are powers of two: a mask then does what the two
+// integer divisions of the general case do, far cheaper on a GPU)
 int wrap(int c, int size, bool mirror) {
     int period = mirror ? size * 2 : size;
-    int m = ((c % period) + period) % period;
+    int m = (period & (period - 1)) == 0 ? c & (period - 1) : ((c % period) + period) % period;
     return (mirror && m >= size) ? period - 1 - m : m;
 }
 
