@@ -1999,78 +1999,90 @@ void App::update_intro() {
 #ifndef _WIN32
 // iOS port: the touch controls' state for this frame, then their pointer and
 // keys, read by poll_keyboard_mouse as a mouse's; PAUSE and BACK are Esc
-// iOS port, a measurement (once, in the first stage played; save/bench_v1
-// marks it done): what each effect costs the GPU on this phone. Every few
-// seconds of play one effect is turned off, the GPU frame time measured, and
-// the settings put back; the log gets a [bench] line per effect.
+// iOS port, a measurement (once, in the first stage played; save/bench_v2
+// marks it done): what each effect costs the GPU on this phone. The scene
+// changes far more than any effect does, so each effect is measured against
+// the settings as they are in the same moments: it is turned off and on
+// again every 0.6 s for about 5 s, and the frames of both halves compared.
+// The log gets a [bench] line per effect; the settings are put back after.
 void App::update_bench() {
     struct Step {
         const char* name;
         void (*set)(Options&);
     };
     static const Step STEPS[] = {
-        {"everything on (as set)", [](Options&) {}},
         {"anisotropic filtering off", [](Options& o) { o.aniso = 0; }},
         {"anisotropic filtering 2x", [](Options& o) { o.aniso = 2; }},
+        {"anisotropic filtering 4x", [](Options& o) { o.aniso = 4; }},
         {"surface detail off", [](Options& o) { o.relief = false; }},
         {"distance haze off", [](Options& o) { o.haze = 0; }},
         {"sun shadows off", [](Options& o) { o.shadows = false; }},
         {"ambient occlusion off", [](Options& o) { o.ao = 0; }},
         {"soft particles off", [](Options& o) { o.soft = false; }},
-        {"bloom off", [](Options& o) { o.bloom = 0; }},
-        {"procedural sky off", [](Options& o) { o.sky_procedural = false; }},
         {"HDR lighting off", [](Options& o) { o.hdr = false; }},
         {"rim light off", [](Options& o) { o.rim = false; }},
         {"modern torch off", [](Options& o) { o.modern_torch = false; }},
         {"sharpening off", [](Options& o) { o.sharpen = false; }},
         {"xBR 2D off", [](Options& o) { o.pixel_2d = true; }},
-        {"3D at 75%", [](Options& o) { o.supersample = 0.75f; }},
-        {"everything on again", [](Options&) {}},
+        {"light shafts off", [](Options& o) { o.shafts = false; }},
+        {"rain off", [](Options& o) { o.rain = 0; }},
     };
     constexpr int COUNT = int(sizeof(STEPS) / sizeof(STEPS[0]));
-    constexpr double SETTLE = 1.5, MEASURE = 3.0;
-    static int step = file_exists("save/bench_v1") || !g_opt.menu ? COUNT : -1;
+    constexpr double HALF = 0.6, SETTLE = 0.2;   // each half, and its first part not counted
+    constexpr int HALVES = 8;
+    static int step = file_exists("save/bench_v2") || !g_opt.menu ? COUNT : -1;
     static Options base;
-    static double phase_from = 0;
-    static bool measuring = false;
-    static double base_ms = 0;
+    static double half_from = 0;
+    static int half = 0;
+    static double sum[2] = {0, 0};
+    static int frames[2] = {0, 0};
     if (step >= COUNT) return;
     double now = now_seconds();
     bool playing = !frontend.active() && !intro && g_inputs.p[0].playing && !g_hold;
-    if (!playing) {   // waits for play; a step interrupted starts over
-        if (step >= 0) phase_from = now, measuring = false;
+    auto set_half = [&](int h) {
+        Options was = g_opt;
+        g_opt = base;
+        if (h & 1) STEPS[step].set(g_opt);
+        apply_video_options(&was);
+        half = h;
+        half_from = now;
+    };
+    if (!playing) {
+        if (step >= 0 && half != 0) {   // interrupted: as set, and this effect starts over
+            set_half(0);
+            sum[0] = sum[1] = 0, frames[0] = frames[1] = 0;
+        }
         return;
     }
-    int frames = 0;
-    if (step < 0) {   // start
+    if (step < 0) {
         base = g_opt;
         step = 0;
-        phase_from = now;
-        measuring = false;
-        printf("[bench] measuring what each effect costs (a minute of play, once)\n");
+        sum[0] = sum[1] = 0, frames[0] = frames[1] = 0;
+        printf("[bench] measuring what each effect costs, each against the settings as set (a minute of play, once)\n");
+        set_half(0);
         return;
     }
-    if (!measuring && now - phase_from >= SETTLE) {
-        renderer.take_gpu_ms(frames);   // from now on
-        measuring = true;
-        phase_from = now;
+    int n = 0;
+    double ms = renderer.take_gpu_ms(n);
+    if (now - half_from >= SETTLE) sum[half & 1] += ms, frames[half & 1] += n;
+    if (now - half_from < HALF) return;
+    if (half + 1 < HALVES) {
+        set_half(half + 1);
         return;
     }
-    if (!measuring || now - phase_from < MEASURE) return;
-    double ms = renderer.take_gpu_ms(frames);
-    double avg = frames ? ms / frames : 0;
-    if (step == 0) base_ms = avg;
-    printf("[bench] %-28s GPU %6.2f ms/frame (%+6.2f)  over %d frames\n", STEPS[step].name, avg, avg - base_ms, frames);
+    double on = frames[0] ? sum[0] / frames[0] : 0, off = frames[1] ? sum[1] / frames[1] : 0;
+    printf("[bench] %-27s as set %6.2f ms, with it off %6.2f ms: it costs %+6.2f ms (%d / %d frames)\n",
+           STEPS[step].name, on, off, on - off, frames[0], frames[1]);
     fflush(stdout);
-    Options was = g_opt;
     step++;
-    g_opt = base;
-    if (step < COUNT) STEPS[step].set(g_opt);
-    apply_video_options(&was);
-    phase_from = now;
-    measuring = false;
-    if (step >= COUNT) {
-        if (FILE* f = fopen("save/bench_v1", "w")) fclose(f);
+    sum[0] = sum[1] = 0, frames[0] = frames[1] = 0;
+    if (step < COUNT) {
+        set_half(0);
+    } else {
+        Options was = g_opt;
+        g_opt = base;
+        apply_video_options(&was);
+        if (FILE* f = fopen("save/bench_v2", "w")) fclose(f);
         printf("[bench] done; the settings are as they were\n");
     }
 }

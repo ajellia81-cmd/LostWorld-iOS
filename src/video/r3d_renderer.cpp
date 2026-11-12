@@ -2612,9 +2612,38 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
                 printf("[hud] viewport prio %d at %.0f,%.0f %.0fx%.0f: sun x %.2f, ambient %.2f, fog %.4f, %u+%u triangles\n",
                        v.priority, v.x, v.y, v.w, v.h, v.sun_intensity, v.ambient, v.fog_density, v.opaque_count / 3,
                        v.trans_count / 3);
-                for (const M& m : ms)
+                for (const M& m : ms) {
                     printf("[hud]   %3d x colour %08X flags %08X%s tex %08X (format %u)\n", m.count, m.color,
                            m.flags & 0x7FFFFFFFu, m.flags & 0x80000000u ? " see-through" : "", m.tex, m.tex >> 28);
+                    if (!(m.flags & R3D_TEXTURED) || !texture_staging_.mapped) continue;
+                    // The texture's base level as the GPU gets it (the staging copy of
+                    // texture RAM): raw words, and for format 0 (ARGB1555) its average
+                    // colour and how much of it is see-through
+                    int bx = int(m.tex & 2047u), by = int((m.tex >> 11) & 2047u);
+                    int tw = 32 << ((m.tex >> 22) & 7u), th = 32 << ((m.tex >> 25) & 7u);
+                    const uint16_t* ram = static_cast<const uint16_t*>(texture_staging_.mapped);
+                    auto texel = [&](int x, int y) {
+                        return ram[size_t((by & 1024) | ((by + y) & 1023)) * 2048 + size_t((bx + x) & 2047)];
+                    };
+                    double r = 0, g = 0, b = 0;
+                    int clear = 0, n = 0, zero = 0;
+                    for (int y = 0; y < th; y++)
+                        for (int x = 0; x < tw; x++) {
+                            uint16_t t = texel(x, y);
+                            n++;
+                            zero += t == 0;
+                            if (t & 0x8000) { clear++; continue; }
+                            r += (t >> 10) & 31, g += (t >> 5) & 31, b += t & 31;
+                        }
+                    int solid = n - clear;
+                    printf("[hud]       %dx%d at %d,%d: %d%% see-through, %d%% zero words, solid average RGB %.0f %.0f %.0f "
+                           "(of 31); row %d: %04X %04X %04X %04X %04X %04X %04X %04X\n",
+                           tw, th, bx, by, n ? clear * 100 / n : 0, n ? zero * 100 / n : 0, solid ? r / solid : 0.0,
+                           solid ? g / solid : 0.0, solid ? b / solid : 0.0, th / 2, texel(tw / 2 - 4, th / 2),
+                           texel(tw / 2 - 3, th / 2), texel(tw / 2 - 2, th / 2), texel(tw / 2 - 1, th / 2),
+                           texel(tw / 2, th / 2), texel(tw / 2 + 1, th / 2), texel(tw / 2 + 2, th / 2),
+                           texel(tw / 2 + 3, th / 2));
+                }
             }
             if (any) last = now;
             fflush(stdout);
