@@ -8,6 +8,11 @@
 #include <cstdlib>
 #include <string>
 
+#ifdef __APPLE__
+#include <objc/message.h>
+#include <objc/runtime.h>
+#endif
+
 // The bundle (read-only) keeps what ships with the app under game/: res/,
 // textures/, third_party/fonts and, when build.sh was given it, lostwsga.zip.
 // The game reads and writes paths relative to its working folder (save/,
@@ -58,4 +63,17 @@ void platform_prepare_files() {
     std::string zip = game + "/lostwsga.zip";
     if (stat("lostwsga.zip", &st) != 0 && stat(zip.c_str(), &st) == 0) setenv("LW_ROM_ZIP", zip.c_str(), 0);
     printf("[files] working folder %s, game files %s\n", work.c_str(), game.c_str());
+}
+
+int platform_thermal_state() {
+#ifdef __APPLE__
+    // [[NSProcessInfo processInfo] thermalState], without Objective-C sources
+    Class cls = objc_getClass("NSProcessInfo");
+    if (!cls) return -1;
+    id info = reinterpret_cast<id (*)(Class, SEL)>(objc_msgSend)(cls, sel_registerName("processInfo"));
+    if (!info) return -1;
+    return int(reinterpret_cast<long (*)(id, SEL)>(objc_msgSend)(info, sel_registerName("thermalState")));
+#else
+    return -1;
+#endif
 }

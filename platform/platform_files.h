@@ -4,3 +4,7 @@
 // the app's Documents folder, with links to the bundle's read-only folders.
 #pragma once
 void platform_prepare_files();
+
+// The phone's heat as iOS sees it (NSProcessInfo.thermalState): 0 nominal,
+// 1 fair, 2 serious (it slows the GPU and CPU down), 3 critical; -1 unknown
+int platform_thermal_state();

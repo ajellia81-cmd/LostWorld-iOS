@@ -166,6 +166,33 @@ static void fit_screen_aspect(HWND hwnd) {
 }
 #endif
 
+#ifndef _WIN32
+// iOS port: what the phone runs at 120 Hz without heating up too soon. On
+// an iPhone's 2868 x 1320 screen 67% is ~1920 x 880 (460 pixels per inch)
+// with sharpening; the sun shadows, haze, bloom, HDR and rim light stay.
+// Off: what costs every pixel at 120 Hz for little on a small screen (MSAA,
+// xBR on the 2D layers, ambient occlusion, light shafts, soft particles,
+// surface detail, the procedural sky's composition). Each one is back in
+// OPTIONS > DISPLAY for whoever has the headroom
+static void phone_quality(FrontendSettings& s) {
+    s.smooth = true;
+    s.half_rate = false;
+    s.scale = 67;
+    s.aa = 2;   // MSAA off
+    s.aniso = 4;
+    s.smooth_2d = false;
+    s.ray_tracing = 0;
+    s.ao = false;
+    s.shadows = true;
+    s.shafts = false;
+    s.soft = false;
+    s.sky = false;
+    s.relief = false;
+    s.bloom = 1;
+    s.sharpen = true;
+}
+#endif
+
 // The gun covers the whole 3D view, also the side bands of a wide one: how
 // far it reaches beyond the 4:3 screen (each new picture, as the window may
 // change)
@@ -488,11 +515,9 @@ struct DisplayClock {
                 EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm) && dm.dmDisplayFrequency > 1)
                 monitor_hz = dm.dmDisplayFrequency;
 #else
-            // iOS port: the screen's rate, at most 60 Hz: without
-            // CADisableMinimumFrameDurationOnPhone (Info.plist) iOS shows a
-            // Metal layer at 60 Hz on a 120 Hz ProMotion screen
+            // iOS port: the screen's rate (120 Hz on a ProMotion iPhone)
             const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(reinterpret_cast<SDL_Window*>(hwnd)));
-            if (dm && dm->refresh_rate > 1) monitor_hz = std::min(double(dm->refresh_rate), 60.0);
+            if (dm && dm->refresh_rate > 1) monitor_hz = dm->refresh_rate;
 #endif
         }
         DWM_TIMING_INFO info{};
@@ -1315,6 +1340,20 @@ bool App::init(int argc, char** argv, bool first_start) {
         ini.set_quality(q);
         quality_options(ini, g_opt);   // what QUALITY sets, now from the level picked
     }
+#ifndef _WIN32
+    // iOS port: the phone's own QUALITY, once (on the first start, and over
+    // the LOW a first start picked before it existed): SMOOTH MOTION at the
+    // full 120 Hz, paid for where a phone's GPU spends the most (fill rate
+    // and memory bandwidth) and the eye on a small screen sees the least
+    if (g_opt.menu && (first_start || (!file_exists("save/phone_quality") && ini.quality() == FrontendSettings::LOW))) {
+        phone_quality(ini);
+        quality_options(ini, g_opt);
+        g_opt.interp = ini.smooth;
+        ini.save("save/settings.ini");
+        if (FILE* f = fopen("save/phone_quality", "w")) fclose(f);
+        printf("[video] phone quality: 3D at every refresh, %d%% resolution\n", ini.scale);
+    }
+#endif
     if (!renderer.init(presenter, g_opt.supersample, g_opt.msaa, g_opt.aniso, g_opt.dlaa)) {
         fprintf(stderr, "Could not start the 3D renderer on %s (see the [vulkan] line above)\n",
                 presenter.device_name().c_str());
@@ -2410,10 +2449,19 @@ void App::update_title() {
         static double last_log = now;
         if (now - last_log >= 5.0) {   // the same, in the log, every 5 s
             last_log = now;
+#ifdef _WIN32
             printf("[timing] frame %llu  %zu polygons  ms/frame: game %.2f  prep %.2f  scene %.2f  render %.2f  "
                    "GPU wait %.2f  present %.2f  (%llu Hz display)\n",
                    (unsigned long long)shown, scene->polygons, game_ms, prep_ms, scene_ms, t.record * per,
                    t.gpu_wait * per, t.present * per, hz);
+#else
+            static const char* const HEAT[] = {"nominal", "fair", "SERIOUS", "CRITICAL"};
+            int heat = platform_thermal_state();
+            printf("[timing] frame %llu  %zu polygons  ms/frame: game %.2f  prep %.2f  scene %.2f  render %.2f  "
+                   "GPU wait %.2f  present %.2f  (%llu Hz display)  heat %s\n",
+                   (unsigned long long)shown, scene->polygons, game_ms, prep_ms, scene_ms, t.record * per,
+                   t.gpu_wait * per, t.present * per, hz, heat >= 0 && heat <= 3 ? HEAT[heat] : "?");
+#endif
             fflush(stdout);
         }
         presents = 0;

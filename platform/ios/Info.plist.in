@@ -70,8 +70,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<!-- No CADisableMinimumFrameDurationOnPhone: the screen stays at 60 Hz for
-	     the game (57.5 Hz), half the drawing of 120 Hz and much less heat -->
+	<!-- ProMotion: 120 Hz, the 3D drawn between game frames (SMOOTH MOTION) -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<!-- The Documents folder in the Files app (lostwsga.zip, crosshair.png, texture packs, saves) -->
 	<key>UIFileSharingEnabled</key>
 	<true/>
