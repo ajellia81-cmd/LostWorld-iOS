@@ -233,13 +233,23 @@ bool R3DRenderer::init(VkPresenter& vk, float supersample, int msaa, int aniso, 
     }
     uint32_t room = std::min({limits.maxPerStageDescriptorSampledImages, limits.maxPerStageDescriptorSamplers,
                               limits.maxDescriptorSetSampledImages, limits.maxDescriptorSetSamplers, limits.maxPerStageResources});
+#ifdef __APPLE__
+    // MoltenVK reports Metal's 16 sampler objects per stage, but the pack's
+    // slots all use the same sampler, kept in a Metal argument buffer: the
+    // images are the limit there (with only 1 slot no replacement ever showed,
+    // and textures such as the reload prompt came out black)
+    room = std::min({limits.maxPerStageDescriptorSampledImages, limits.maxDescriptorSetSampledImages,
+                     limits.maxPerStageResources});
+#endif
     replacement_slots_ = std::clamp(room - std::min(room, 32u + Pack2D::MAX_SLOTS), 1u, TexturePack::MAX_SLOTS);
     if (replacement_slots_ < TexturePack::MAX_SLOTS)
         printf("[vulkan] descriptor limits of this GPU: %u texture pack slots instead of %u\n", replacement_slots_,
                TexturePack::MAX_SLOTS);
 
     const VkImageUsageFlags sampled = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    if (!create_image(texture_ram_, 2048, 2048, VK_FORMAT_R16_UINT, sampled, VK_IMAGE_ASPECT_COLOR_BIT)) return false;
+    if (!create_image(texture_ram_, 2048, 2048, VK_FORMAT_R16_UINT, sampled | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                      VK_IMAGE_ASPECT_COLOR_BIT))
+        return false;
     if (!create_image(back_, BACK_W, SCREEN_H, VK_FORMAT_B8G8R8A8_UNORM, sampled, VK_IMAGE_ASPECT_COLOR_BIT)) return false;
     if (!create_image(front_, SCREEN_W, SCREEN_H, VK_FORMAT_B8G8R8A8_UNORM, sampled, VK_IMAGE_ASPECT_COLOR_BIT)) return false;
     if (!create_buffer(texture_staging_, 2048 * 2048 * 2, VK_BUFFER_USAGE_TRANSFER_SRC_BIT)) return false;
@@ -2649,7 +2659,7 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
                         }
                     }
                 }
-                if (!hud) continue;
+                if (!hud && ms.empty()) continue;   // (also the overlays without side elements: the reload prompt)
                 any = true;
                 printf("[hud] viewport prio %d at %.0f,%.0f %.0fx%.0f: sun x %.2f, ambient %.2f, fog %.4f, %u+%u triangles\n",
                        v.priority, v.x, v.y, v.w, v.h, v.sun_intensity, v.ambient, v.fog_density, v.opaque_count / 3,
@@ -2665,6 +2675,27 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
                                nx, ny, nz, m.z * k, m.u0, m.u1, m.v0, m.v1, s * v.sun_intensity * light_gain_ + v.ambient);
                     }
                     if (!(m.flags & R3D_TEXTURED) || !texture_staging_.mapped) continue;
+                    // The same texture as the GPU has it (read back 20 s ago): differences
+                    // mean texture RAM never reached the GPU right
+                    if (tex_readback_.mapped && readback_tex_ == m.tex) {
+                        int bx = int(m.tex & 2047u), by = int((m.tex >> 11) & 2047u);
+                        int tw = 32 << ((m.tex >> 22) & 7u), th = std::min(64, 32 << ((m.tex >> 25) & 7u));
+                        const uint16_t* gpu = static_cast<const uint16_t*>(tex_readback_.mapped);
+                        const uint16_t* cpu = static_cast<const uint16_t*>(texture_staging_.mapped);
+                        int diff = 0, gzero = 0;
+                        for (int y = 0; y < th; y++)
+                            for (int x = 0; x < tw; x++) {
+                                uint16_t g = gpu[size_t(y) * 2048 + size_t((bx + x) & 2047)];
+                                uint16_t c = cpu[size_t(((by & 1024) | ((by + y) & 1023))) * 2048 + size_t((bx + x) & 2047)];
+                                diff += g != c;
+                                gzero += g == 0;
+                            }
+                        printf("[hud]       on the GPU: %d of %d texels differ from texture RAM, %d zero\n", diff, tw * th, gzero);
+                    }
+                    if (readback_tex_ != m.tex && !readback_asked_) {
+                        readback_asked_ = true;
+                        readback_tex_ = m.tex;
+                    }
                     // The texture's base level as the GPU gets it (the staging copy of
                     // texture RAM): raw words, and for format 0 (ARGB1555) its average
                     // colour and how much of it is see-through
@@ -2696,6 +2727,23 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
             }
             if (any) last = now;
             fflush(stdout);
+            // Reads that texture's rows back from the GPU, for the next report
+            if (readback_asked_) {
+                readback_asked_ = false;
+                if (!tex_readback_.buffer) create_buffer(tex_readback_, 2048 * 64 * 2, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+                if (tex_readback_.mapped) {
+                    int by = int((readback_tex_ >> 11) & 2047u);
+                    int th = std::min(64, 32 << ((readback_tex_ >> 25) & 7u));
+                    transition(f.cmd, texture_ram_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+                    VkBufferImageCopy c{};
+                    c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                    c.imageOffset = {0, by, 0};
+                    c.imageExtent = {2048, uint32_t(std::min(th, 2048 - by)), 1};
+                    vkCmdCopyImageToBuffer(f.cmd, texture_ram_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tex_readback_.buffer,
+                                           1, &c);
+                    transition(f.cmd, texture_ram_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                }
+            }
         }
     }
 #endif
@@ -2842,7 +2890,7 @@ void R3DRenderer::shutdown() {
     for (Upload& u : uploads_) destroy_image(u.img), destroy_buffer(u.staging);
     uploads_.clear();
     free_spent();
-    for (Buffer* b : {&texture_staging_, &layer_staging_, &vertices_, &atmosphere_uniform_}) destroy_buffer(*b);
+    for (Buffer* b : {&texture_staging_, &layer_staging_, &vertices_, &atmosphere_uniform_, &tex_readback_}) destroy_buffer(*b);
     for (VkSampler sm : {nearest_, linear_, replace_sampler_, overlay_sampler_, sky_sampler_})
         if (sm) vkDestroySampler(dev_, sm, nullptr);
     for (VkPipelineLayout l : {r3d_layout_, compose_layout_, bloom_layout_, ao_layout_, sky_layout_})

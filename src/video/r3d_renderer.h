@@ -344,6 +344,9 @@ private:
     // FEAT_ bits there); the ones turned off are left out of the shader, which
     // then keeps fewer registers live per pixel. ~0u: everything (Windows)
     uint32_t features_ = ~0u;
+    Buffer tex_readback_;            // iOS diagnosis: texture RAM rows read back from the GPU
+    uint32_t readback_tex_ = 0;
+    bool readback_asked_ = false;
     uint32_t feature_mask() const;
     const R3DScene* scene_ = nullptr;
     bool has_world_ = false;   // a viewport of scene_ shows the game world
