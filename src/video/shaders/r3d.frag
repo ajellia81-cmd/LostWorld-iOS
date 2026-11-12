@@ -24,6 +24,17 @@ layout(set = 0, binding = 0) uniform usampler2D texture_ram;   // 2048x2048 R16_
 // allow (R3DRenderer::replacement_slots(), set when the pipeline is made)
 layout(constant_id = 0) const uint REPLACEMENT_SLOTS = 4096u;
 layout(set = 0, binding = 1) uniform sampler2D replacements[REPLACEMENT_SLOTS];
+// The effects compiled in (R3DRenderer::feature_mask()): on phones the ones
+// turned off are left out, so the shader keeps fewer registers per pixel
+layout(constant_id = 1) const uint FEATURES = 0xFFFFFFFFu;
+const bool FEAT_SHADOW = (FEATURES & 1u) != 0u;
+const bool FEAT_RELIEF = (FEATURES & 2u) != 0u;
+const bool FEAT_WET = (FEATURES & 4u) != 0u;
+const bool FEAT_RIM = (FEATURES & 8u) != 0u;
+const bool FEAT_LIGHTNING = (FEATURES & 16u) != 0u;
+const bool FEAT_HAZE = (FEATURES & 32u) != 0u;
+const bool FEAT_SOFT = (FEATURES & 64u) != 0u;
+const bool FEAT_ANISO = (FEATURES & 128u) != 0u;
 
 layout(push_constant) uniform Viewport {
     mat4 proj;
@@ -57,7 +68,7 @@ layout(location = 2) out vec4 out_glow;     // bloom: the bright part of luminou
 float traced_shadow(vec3 n);
 #endif
 float sun_shadow(vec3 n) {
-    if (atm.shadow.x <= 0.0 || vp.sun.w <= 0.0 || (flags & WORLD) == 0u) return 1.0;
+    if (!FEAT_SHADOW || atm.shadow.x <= 0.0 || vp.sun.w <= 0.0 || (flags & WORLD) == 0u) return 1.0;
 #ifdef RAY_TRACING
     // rt.x 2: traced on the left half only, for comparing (LW_RTSPLIT)
     if (atm.rt.x > 1.5 ? gl_FragCoord.x * atm.backdrop.x < 0.5 : atm.rt.x > 0.0) return traced_shadow(n);
@@ -174,7 +185,7 @@ vec4 sample_texture(vec2 duv_dx, vec2 duv_dy) {
     vec2 st = uv * vec2(size);
     vec4 sum;
     float max_aniso = vp.quality.y;
-    if (max_aniso < 1.0) {
+    if (!FEAT_ANISO || max_aniso < 1.0) {
         sum = bilinear(base, size, st, 0, fmt);   // original look: base level only
     } else {
         // Footprint of the pixel in level-0 texels: the long axis gets several
@@ -401,7 +412,7 @@ void main() {
     }
     if ((flags & (LUMINOUS | RAIN)) == 0u) {
         vec3 n = normal;
-        if (atm.relief.x > 0.0 && (flags & (WORLD | TEXTURED)) == (WORLD | TEXTURED) && (flags & FIXED_SHADE) == 0u)
+        if (FEAT_RELIEF && atm.relief.x > 0.0 && (flags & (WORLD | TEXTURED)) == (WORLD | TEXTURED) && (flags & FIXED_SHADE) == 0u)
             n = relief_normal(n, dot(t.rgb, vec3(0.2126, 0.7152, 0.0722)), dpx, dpy, duv_dx, duv_dy);
         float s = (flags & FIXED_SHADE) != 0u ? fixed_shade : dot(vp.sun.xyz, n);
         s = clamp(s, -1.0, 1.0);
@@ -418,7 +429,7 @@ void main() {
         // Rim light: dinosaurs, people and vehicles get a soft edge of light
         // along their silhouette, cool from the sky above and warm towards the
         // sun, which lifts them off the background as on a film set
-        if (atm.sunlight.w > 0.0 && (flags & (ACTOR | WORLD)) == (ACTOR | WORLD) && length(n) > 0.0) {
+        if (FEAT_RIM && atm.sunlight.w > 0.0 && (flags & (ACTOR | WORLD)) == (ACTOR | WORLD) && length(n) > 0.0) {
             vec3 nn = normalize(n);
             float rim = pow(1.0 - clamp(dot(nn, normalize(-view_pos)), 0.0, 1.0), 4.0);
             float sky = 0.45 + 0.55 * max(dot(nn, atm.axes[1].xyz), 0.0);
@@ -427,7 +438,7 @@ void main() {
         }
         // Lightning lights the world for a moment from where it strikes:
         // what faces it stands out, what faces away stays dark
-        if (atm.mist.w > 0.0 && (flags & WORLD) != 0u && length(n) > 0.0)
+        if (FEAT_LIGHTNING && atm.mist.w > 0.0 && (flags & WORLD) != 0u && length(n) > 0.0)
             light += atm.mist.w * (0.12 + 0.75 * max(dot(normalize(n), lightning_dir()), 0.0));
         // The torch: in the original a flat lobe; the modern one comes from
         // the eye, so it shades the surfaces it meets (faces turned away get
@@ -453,7 +464,7 @@ void main() {
                       (atm.sunlight.z > 0.0 && (flags & WORLD) != 0u ? atm.sunlight.x : 1.0);
             c.rgb += f;
         }
-        if (atm.rain.x > 0.0 && (flags & WORLD) != 0u && vp.quality.x > 0.0 && length(n) > 0.0)
+        if (FEAT_WET && atm.rain.x > 0.0 && (flags & WORLD) != 0u && vp.quality.x > 0.0 && length(n) > 0.0)
             c.rgb = wet_surface(c.rgb, n, world_pos, world_px);
     }
     // The original clips the light at white; with HDR lighting the highlights
@@ -471,7 +482,7 @@ void main() {
     // The modern torch's beam in the air between the eye and this surface
     if ((flags & WORLD) != 0u && -view_pos.z > 0.0) c.rgb += torch_air(view_pos.xy / -view_pos.z, length(view_pos));
     // Optional distance haze
-    if ((flags & WORLD) != 0u && atm.haze.a > 0.0)
+    if (FEAT_HAZE && (flags & WORLD) != 0u && atm.haze.a > 0.0)
         c.rgb = distance_haze(c.rgb, view_pos, float(flags >> 24u) / 255.0, fog);
     // Opaque pass: the colour written is always solid, since a filtered alpha
     // would let the 2D background show through. With MSAA, alpha-tested edges
@@ -495,7 +506,7 @@ void main() {
     }
     // Soft particles: smoke, fire and other translucent surfaces of the world
     // fade out where they meet what stands behind them, instead of a hard line
-    if (vp.quality.x < 0.0 && atm.soft.x > 0.0 && (flags & WORLD) != 0u) {
+    if (FEAT_SOFT && vp.quality.x < 0.0 && atm.soft.x > 0.0 && (flags & WORLD) != 0u) {
         float d = texelFetch(scene_depth, ivec2(gl_FragCoord.xy), 0).r;
         if (d > 0.0) c.a *= clamp((view_pos.z + 1e-3 / d) / atm.soft.y, 0.0, 1.0);
     }

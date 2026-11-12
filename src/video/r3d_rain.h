@@ -15,6 +15,7 @@ class R3DRain {
 public:
     // 0 = off, 1 = light, 2 = heavy
     void set_level(int level) { level_ = level; }
+    int level() const { return level_; }
     // Rain of our own where the game has none (the weather, r3d_weather.h), 0..1
     void set_forced(float amount) { forced_ = amount; }
     // The camera is under a roof (r3d_shelter.h): our rain goes at once

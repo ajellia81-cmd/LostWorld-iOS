@@ -340,6 +340,11 @@ private:
     VkSampleCountFlagBits msaa_level(int samples) const;   // the highest the GPU has, not above `samples`
     float aniso_ = 0.0f;
     uint32_t replacement_slots_ = TexturePack::MAX_SLOTS;
+    // tile_mode_: the effects r3d.frag is compiled with (constant_id 1, the
+    // FEAT_ bits there); the ones turned off are left out of the shader, which
+    // then keeps fewer registers live per pixel. ~0u: everything (Windows)
+    uint32_t features_ = ~0u;
+    uint32_t feature_mask() const;
     const R3DScene* scene_ = nullptr;
     bool has_world_ = false;   // a viewport of scene_ shows the game world
 

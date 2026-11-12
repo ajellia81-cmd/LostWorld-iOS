@@ -157,6 +157,43 @@ static void aim_at(int player, HWND hwnd, POINT pt) {
 }
 
 #ifndef _WIN32
+// iOS port's defaults: the screen's full resolution, shape and refresh, and
+// the arcade's own picture and sound for the rest (each effect the native
+// version adds is off; OPTIONS turns any of them on)
+static void arcade_defaults(FrontendSettings& s) {
+    // The iPhone's most
+    s.scale = 100;
+    s.aspect = 2;           // as wide as it goes (fit_screen_aspect: the whole screen)
+    s.smooth = true;        // MOTION: SMOOTH, the 3D at every refresh (120 Hz)
+    s.half_rate = false;
+    s.vsync = true;
+    // The arcade's picture
+    s.aa = 2;               // no anti-aliasing
+    s.aniso = 0;            // no mipmaps: the original texture look
+    s.smooth_2d = false;    // 2D layers as pixels (no xBR)
+    s.hd_text = false;      // the original pixel-art letters
+    s.saturation = 100;     // the original colours
+    s.sky = false;          // the game's own sky picture
+    s.sun = false;
+    s.torch = false;        // the original spotlight
+    s.shadows = false;
+    s.ray_tracing = 0;
+    s.shafts = false;
+    s.hdr = false;
+    s.ao = false;
+    s.bloom = 0;
+    s.rim = false;
+    s.relief = false;
+    s.haze = false;
+    s.lightning = false;
+    s.rain = 0;
+    s.soft = false;
+    s.sharpen = false;
+    // The arcade's sound
+    s.cubic_samples = false;   // the chip's linear interpolation
+    s.weather_sound = 0;       // no rain loop
+}
+
 // iOS port: the 3D view as wide as the screen (2868 x 1320 on an iPhone 18 Pro
 // Max, 2.17:1), whatever WIDESCREEN says; it only ever widens
 static void fit_screen_aspect(HWND hwnd) {
@@ -1318,24 +1355,7 @@ bool App::init(int argc, char** argv, bool first_start) {
         ini.set_quality(q);
         quality_options(ini, g_opt);   // what QUALITY sets, now from the level picked
     }
-#ifndef _WIN32
-    // iOS port: an iPhone's GPU runs the game at full quality, but MoltenVK
-    // reports it as integrated and a first start picked LOW (half rate, 75%).
-    // Once (first start, an automatic LOW, or the phone settings of an
-    // earlier build): ULTRA, the 3D at every refresh, 100% resolution
-    if (g_opt.menu && !file_exists("save/ios_quality_v2") &&
-        (first_start || ini.quality() == FrontendSettings::LOW || file_exists("save/phone_quality"))) {
-        ini.set_quality(FrontendSettings::ULTRA);
-        ini.smooth = true;
-        ini.half_rate = false;
-        ini.scale = 100;
-        quality_options(ini, g_opt);
-        g_opt.interp = true;
-        ini.save("save/settings.ini");
-        printf("[video] iPhone: ULTRA quality, 3D at every refresh, 100%% resolution\n");
-    }
-    if (FILE* f = fopen("save/ios_quality_v2", "w")) fclose(f);
-#endif
+
     if (!renderer.init(presenter, g_opt.supersample, g_opt.msaa, g_opt.aniso, g_opt.dlaa)) {
         fprintf(stderr, "Could not start the 3D renderer on %s (see the [vulkan] line above)\n",
                 presenter.device_name().c_str());
@@ -2086,7 +2106,6 @@ void App::update_bench() {
 }
 
 void App::update_touch() {
-    update_bench();
     bool any_pad = false;
     for (int i = 0; i < Gamepads::MAX; i++) any_pad = any_pad || g_pads.pad(i).connected;
     Frontend::Screen sc = frontend.screen();
@@ -2633,6 +2652,19 @@ int main(int argc, char** argv) {
     bool first_start = g_opt.menu && !file_exists("save/settings.ini");
     if (g_opt.menu) {   // save/settings.ini, written by the options menu; command-line options win
         ini.load("save/settings.ini");
+#ifndef _WIN32
+        // iOS port: the iPhone's most for the resolution (100%), the picture's
+        // shape (the whole screen, iPhone 18 Pro Max 2.17:1) and the frame rate
+        // (the 3D drawn between game frames at 120 Hz); everything else as the
+        // arcade drew it. Once (save/ios_defaults_arcade): any of it can be
+        // turned up in OPTIONS afterwards and stays as set
+        if (!file_exists("save/ios_defaults_arcade")) {
+            arcade_defaults(ini);
+            ini.save("save/settings.ini");
+            if (FILE* f = fopen("save/ios_defaults_arcade", "w")) fclose(f);
+            printf("[video] iPhone defaults: 100%% resolution, full screen, 120 Hz; the arcade's own picture\n");
+        }
+#endif
         options_from_settings(ini, g_opt);
         g_pad_settings = {ini.pad_speed, ini.gyro, ini.gyro_speed, ini.vibration, ini.aim_assist};
     }

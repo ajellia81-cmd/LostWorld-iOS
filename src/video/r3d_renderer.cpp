@@ -633,8 +633,11 @@ bool R3DRenderer::create_pipelines() {
     VkShaderModule sky_fs = make_module(dev_, spv_sky_fields_frag, sizeof(spv_sky_fields_frag));
     bool motion = motion_pass_ = dlaa_.ready();
     // r3d.frag sizes its texture pack array by this constant (constant_id 0)
-    VkSpecializationMapEntry slots_entry{0, 0, sizeof(uint32_t)};
-    VkSpecializationInfo r3d_spec{1, &slots_entry, sizeof(replacement_slots_), &replacement_slots_};
+    // and leaves out the effects that are off (constant_id 1, tile_mode_ only)
+    features_ = feature_mask();
+    const uint32_t spec_data[2] = {replacement_slots_, features_};
+    const VkSpecializationMapEntry spec_entries[2] = {{0, 0, sizeof(uint32_t)}, {1, 4, sizeof(uint32_t)}};
+    VkSpecializationInfo r3d_spec{2, spec_entries, sizeof(spec_data), spec_data};
     // The world: 3D geometry into the HDR image, with the motion and glow slots
     // (the glow only while the bloom is on: without it nothing reads it)
     PipelineDesc world{.vs = r3d_vs, .fs = r3d_fs, .layout = r3d_layout_, .color = VK_FORMAT_R16G16B16A16_SFLOAT,
@@ -715,6 +718,21 @@ VkSampleCountFlagBits R3DRenderer::msaa_level(int samples) const {
 // MSAA changed in the menu, or the bloom went on or off: the world pipelines
 // and the targets depend on the sample count and on whether the glow is
 // drawn, so both are made again (between frames: nothing in flight)
+// The FEAT_ bits of r3d.frag for what is on now (all of them off tile_mode_)
+uint32_t R3DRenderer::feature_mask() const {
+    if (!tile_mode_) return ~0u;
+    uint32_t m = 0;
+    if (shadow_strength_ > 0) m |= 1u;      // FEAT_SHADOW
+    if (relief_) m |= 2u;                   // FEAT_RELIEF
+    if (rain_.level() > 0) m |= 4u;         // FEAT_WET
+    if (rim_) m |= 8u;                      // FEAT_RIM
+    if (lightning_) m |= 16u;               // FEAT_LIGHTNING
+    if (haze_strength_ > 0) m |= 32u;       // FEAT_HAZE
+    if (soft_particles_) m |= 64u;          // FEAT_SOFT
+    if (aniso_ >= 1.0f) m |= 128u;          // FEAT_ANISO
+    return m;
+}
+
 void R3DRenderer::apply_pending() {
     VkSampleCountFlagBits level = samples_;
     if (pending_msaa_) {
@@ -726,7 +744,17 @@ void R3DRenderer::apply_pending() {
         }
     }
     bool glow = bloom_strength_ > 0;
-    if (level == samples_ && glow == glow_pass_) return;
+    if (level == samples_ && glow == glow_pass_) {
+        // An effect went on or off in the menu: the world shader again
+        if (feature_mask() != features_) {
+            vkDeviceWaitIdle(dev_);
+            uint32_t was = features_;
+            destroy_pipelines();
+            if (!create_pipelines()) fprintf(stderr, "[vulkan] could not make the pipelines again (effects)\n");
+            printf("[video] shader effects %03X -> %03X\n", was, features_);
+        }
+        return;
+    }
     vkDeviceWaitIdle(dev_);
     bool msaa_changed = level != samples_;
     samples_ = level;
