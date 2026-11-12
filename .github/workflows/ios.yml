@@ -1,0 +1,77 @@
+# Builds LostWorld.ipa on a GitHub macOS runner (platform/ios/build.sh), for
+# LiveContainer. Run it from the Actions tab (Run workflow).
+#
+# The ROM: upload lostwsga.zip once to a release of this (private) repository
+# tagged "rom". It never goes into the repository itself. The .ipa contains
+# it, so keep this repository private and the build to yourself (LICENSE).
+#
+# "check" builds the app against stand-in code instead (no ROM needed): it
+# only tells whether the port compiles and links for iOS.
+name: iOS build
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "ipa: the game (needs the ROM release) / check: compile check without the ROM"
+        type: choice
+        options: [ipa, check]
+        default: ipa
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          command -v ninja >/dev/null || brew install ninja
+          cmake --version | head -1
+          xcodebuild -version
+
+      - name: ROM (release "rom")
+        if: inputs.mode == 'ipa'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release download rom --pattern lostwsga.zip --dir . ; then
+            echo "::error::No lostwsga.zip in a release tagged 'rom'. Create one (Releases > Draft a new release, tag: rom) and attach lostwsga.zip."
+            exit 1
+          fi
+          ls -l lostwsga.zip
+
+      - name: Stand-in code (check)
+        if: inputs.mode == 'check'
+        run: python3 platform/ios/stub_gen.py
+
+      - name: MoltenVK and the build tools (cache)
+        uses: actions/cache@v4
+        with:
+          path: |
+            third_party/downloads
+            build/ios-host
+          key: ios-tools-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'third_party/deps.txt', 'platform/ios/build.sh') }}
+
+      - name: Build
+        env:
+          LW_SKIP_RECOMP: ${{ inputs.mode == 'check' && '1' || '' }}
+          LW_NO_ROM_IN_APP: ${{ inputs.mode == 'check' && '1' || '' }}
+        run: bash platform/ios/build.sh lostwsga.zip
+
+      - name: LostWorld.ipa
+        if: inputs.mode == 'ipa'
+        uses: actions/upload-artifact@v4
+        with:
+          name: LostWorld-ipa
+          path: out/ios/LostWorld.ipa
+          retention-days: 7
+          compression-level: 0

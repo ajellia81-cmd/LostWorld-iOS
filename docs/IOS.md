@@ -24,6 +24,19 @@ platform/ios/build.sh /경로/lostwsga.zip
 ROM을 앱에 넣고 싶지 않으면 `LW_NO_ROM_IN_APP=1`을 주세요. 그 경우 앱의 Documents 폴더에 `lostwsga.zip`을 직접 넣으면 돼요.
 번들 ID는 `LW_BUNDLE_ID`로 바꿀 수 있어요 (기본값 `com.snicolast.lostworld`).
 
+## GitHub에서 빌드 (Mac 없이)
+
+이 저장소의 Actions가 GitHub의 macOS 서버에서 같은 스크립트로 .ipa를 만들어요 (`.github/workflows/ios.yml`).
+
+1. **ROM 올리기 (한 번만)**: Releases > Draft a new release에서 태그를 `rom`으로 정하고, `lostwsga.zip`을 첨부해서
+   공개(Publish)해요. 저장소가 비공개라 릴리스도 본인만 볼 수 있어요.
+2. **빌드**: Actions > iOS build > Run workflow를 누르고 `ipa`를 골라요.
+3. **받기**: 끝난 실행 화면 아래쪽 Artifacts의 `LostWorld-ipa`를 받아 압축을 풀면 `LostWorld.ipa`가 나와요 (7일 보관).
+
+`check`를 고르면 ROM 없이 iOS용으로 컴파일·링크까지만 확인해요.
+비공개 저장소는 GitHub Free 기준 매달 macOS 약 190분까지 무료이고, 다 쓰면 결제 수단이 없는 한 다음 달까지 빌드만 멈춰요.
+ROM이 든 .ipa는 본인만 쓰고 공유하지 마세요 (LICENSE).
+
 ## LiveContainer로 설치
 
 1. `LostWorld.ipa`를 AirDrop이나 파일 앱으로 아이폰에 옮겨요.

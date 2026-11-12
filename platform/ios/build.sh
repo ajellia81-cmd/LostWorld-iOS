@@ -37,13 +37,20 @@ GEN="Unix Makefiles"
 command -v ninja >/dev/null && GEN=Ninja
 
 # ---- [1/6] the ROM's data, [2/6] its code recompiled
-if [ ! -f data/crom.bin ] || [ ! -f data/sound_samples.bin ]; then
+# (LW_SKIP_RECOMP=1: build/gen is already there, e.g. the stand-in code of a
+# compile check without the ROM)
+if [ -n "${LW_SKIP_RECOMP:-}" ]; then
+    [ -f build/gen/files.cmake ] || fail "LW_SKIP_RECOMP is set but build/gen/files.cmake is missing"
+    echo "[1-2/6] Using the code already in build/gen"
+elif [ ! -f data/crom.bin ] || [ ! -f data/sound_samples.bin ]; then
     [ -f "$ZIP" ] || fail "ROM not found ($ZIP): give the path to lostwsga.zip as an argument or in LW_ROM_ZIP"
     echo "[1/6] Extracting the ROM"
     "$PY" tools/romtool.py "$ZIP" data
 fi
-echo "[2/6] Recompiling the PowerPC code"
-"$PY" tools/recomp.py data/crom.bin build/gen
+if [ -z "${LW_SKIP_RECOMP:-}" ]; then
+    echo "[2/6] Recompiling the PowerPC code"
+    "$PY" tools/recomp.py data/crom.bin build/gen
+fi
 
 # ---- [3/6] glslang and m68kmake for this Mac (the build runs them)
 echo "[3/6] Building the build tools for this Mac"
