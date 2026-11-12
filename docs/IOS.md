@@ -34,7 +34,7 @@ ROM을 앱에 넣고 싶지 않으면 `LW_NO_ROM_IN_APP=1`을 주세요. 그 경
    이 저장소의 Actions 시크릿 `PRIVATE_REPO_TOKEN`에 넣어요.
 3. **빌드**: Actions > iOS build > Run workflow를 누르고 `ipa`를 골라요.
 4. **받기**: 비공개 저장소의 릴리스 `latest`에 `LostWorld.ipa`가 올라와요 (빌드할 때마다 바뀌어요).
-   이 ipa에는 ROM이 없어요. 폰에서 앱의 Documents 폴더에 `lostwsga.zip`을 한 번 넣어 두면 돼요.
+   이 ipa에는 ROM이 없어요. 폰에서 앱의 Documents 안 `rom` 폴더에 `lostwsga.zip`을 한 번 넣어 두면 돼요.
 
 `check`를 고르면 ROM 없이 iOS용으로 컴파일·링크까지만 확인해요.
 앱 안에는 ROM에서 만든 게임 코드가 들어 있어서 공개된 곳에 올리면 안 돼요 (LICENSE). 그래서 결과물을 이 저장소에 올리지 않아요.
@@ -44,7 +44,7 @@ ROM을 앱에 넣고 싶지 않으면 `LW_NO_ROM_IN_APP=1`을 주세요. 그 경
 1. `LostWorld.ipa`를 AirDrop이나 파일 앱으로 아이폰에 옮겨요.
 2. LiveContainer에서 **+** 를 눌러 .ipa를 추가하고 실행해요.
 
-ROM이 앱 안에 들어 있어서 따로 옮길 파일은 없어요. 저장 데이터, 설정, 기록은 LiveContainer가 이 앱에 준
+ROM은 앱에 들어 있지 않아요. 한 번 실행하면 데이터 폴더(앱 기준 Documents)에 `rom` 폴더가 생기니 거기에 `lostwsga.zip`을 넣고 다시 실행해요. 저장 데이터, 설정, 기록은 LiveContainer가 이 앱에 준
 데이터 폴더(앱 기준 Documents)에 남아요. 여기에 `crosshair.png`를 넣으면 조준점 그림으로 쓰이고,
 `textures/` 같은 텍스처 팩 폴더를 직접 만들어 넣을 수도 있어요.
 

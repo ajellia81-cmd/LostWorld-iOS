@@ -757,9 +757,15 @@ static bool load_game_rom(std::vector<uint8_t>& sound_program, std::vector<uint8
         error = "Cannot find The Lost World ROM (lostwsga.zip). Looked in:\n";
         for (const std::string& l : looked) error += "  " + l + "\n";
     }
+#ifdef _WIN32
     error += "\nPut lostwsga.zip next to LostWorld.exe, or give its path with\n"
              "  LostWorld.exe --rom D:\\roms\\lostwsga.zip\n"
              "or in the LW_ROM_ZIP environment variable.";
+#else
+    error += "\nPut lostwsga.zip in the rom folder of this app's Documents\n"
+             "(Files app: LiveContainer > Data > Application > this app > Documents > rom)\n"
+             "and start the game again.";
+#endif
     fprintf(stderr, "%s\n", error.c_str());
     if (!g_opt.headless) MessageBoxA(nullptr, error.c_str(), "Lost World Native", MB_OK | MB_ICONERROR);
     return false;

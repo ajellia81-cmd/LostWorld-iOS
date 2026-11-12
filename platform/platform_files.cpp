@@ -45,7 +45,7 @@ void platform_prepare_files() {
         setvbuf(stdout, nullptr, _IOLBF, 0);
         dup2(fileno(stdout), fileno(stderr));
     }
-    for (const char* d : {"save", "out", "data", "third_party"}) mkdir(d, 0755);
+    for (const char* d : {"save", "out", "data", "third_party", "rom"}) mkdir(d, 0755);
     // The GPU time of each pass, every 300 images, in the log (the renderer's
     // LW_GPUTIME): with the [timing] line it shows what grows as the game slows
     setenv("LW_GPUTIME", "1", 0);
@@ -61,10 +61,11 @@ void platform_prepare_files() {
     link_to(game + "/res", "res");
     link_to(game + "/textures", "textures");
     link_to(game + "/third_party/fonts", "third_party/fonts");
-    // A lostwsga.zip in Documents wins (app.cpp looks in the working folder);
-    // otherwise the one packed into the app
-    std::string zip = game + "/lostwsga.zip";
-    if (stat("lostwsga.zip", &st) != 0 && stat(zip.c_str(), &st) == 0) setenv("LW_ROM_ZIP", zip.c_str(), 0);
+    // The ROM: lostwsga.zip in the rom/ folder of Documents (the app does not
+    // carry it). Made at the first launch, so the Files app shows it
+    std::string rom = work + (work.back() == '/' ? "" : "/") + "rom/lostwsga.zip";
+    if (stat(rom.c_str(), &st) == 0) setenv("LW_ROM_ZIP", rom.c_str(), 1);
+    else printf("[files] no ROM: put lostwsga.zip in the rom folder (%s)\n", rom.c_str());
     printf("[files] working folder %s, game files %s\n", work.c_str(), game.c_str());
 }
 
