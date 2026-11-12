@@ -147,7 +147,11 @@ void R3DRenderer::destroy_buffer(Buffer& b) {
 }
 
 bool R3DRenderer::create_image(Image& img, uint32_t w, uint32_t h, VkFormat format, VkImageUsageFlags usage,
-                               VkImageAspectFlags aspect, VkSampleCountFlagBits samples) {
+                               VkImageAspectFlags aspect, VkSampleCountFlagBits samples, bool transient) {
+    // Tile memory only (Metal's memoryless textures through MoltenVK): an
+    // attachment never stored nor read takes no memory and no bandwidth
+    uint32_t lazy = UINT32_MAX;
+    if (transient) usage |= VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
     VkImageCreateInfo ii{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     ii.imageType = VK_IMAGE_TYPE_2D;
     ii.format = format;
@@ -165,7 +169,8 @@ bool R3DRenderer::create_image(Image& img, uint32_t w, uint32_t h, VkFormat form
     vkGetImageMemoryRequirements(dev_, img.image, &req);
     VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     ai.allocationSize = req.size;
-    ai.memoryTypeIndex = vk_->find_memory(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (transient) lazy = vk_->find_memory(req.memoryTypeBits, VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT);
+    ai.memoryTypeIndex = lazy != UINT32_MAX ? lazy : vk_->find_memory(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     if (ai.memoryTypeIndex == UINT32_MAX) {
         fprintf(stderr, "[vulkan] no device-local memory for a %ux%u image format %d (types %x)\n", w, h,
                 int(format), req.memoryTypeBits);
@@ -212,6 +217,12 @@ bool R3DRenderer::init(VkPresenter& vk, float supersample, int msaa, int aniso, 
     if (dlaa && dlaa_.init(vk.instance(), vk.gpu(), dev_)) msaa = 1;
     msaa_wanted_ = msaa;
     samples_ = msaa_level(msaa);
+#ifndef _WIN32
+    {
+        const char* t = getenv("LW_TILE");
+        tile_mode_ = !(t && t[0] == '0');
+    }
+#endif
     const VkPhysicalDeviceLimits& limits = vk.limits();
     // The texture pack is an array of images indexed per polygon: it needs the
     // descriptor indexing features, and as many slots as the GPU's limits
@@ -566,6 +577,7 @@ VkPipeline R3DRenderer::make_pipeline(const PipelineDesc& d) {
     cbas[2] = cba;
     if (d.depth_only)
         for (auto& c : cbas) c.colorWriteMask = 0;
+    if (d.first_only) cbas[1].colorWriteMask = cbas[2].colorWriteMask = 0;
     uint32_t attachments = d.glow ? 3 : d.motion ? 2 : 1;
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     cb.attachmentCount = attachments;
@@ -580,7 +592,7 @@ VkPipeline R3DRenderer::make_pipeline(const PipelineDesc& d) {
     VkFormat formats[3] = {d.color, d.motion ? VK_FORMAT_R16G16_SFLOAT : VK_FORMAT_UNDEFINED, VK_FORMAT_R8G8B8A8_UNORM};
     rend.colorAttachmentCount = attachments;
     rend.pColorAttachmentFormats = formats;
-    rend.depthAttachmentFormat = d.depth ? VK_FORMAT_D32_SFLOAT : VK_FORMAT_UNDEFINED;
+    rend.depthAttachmentFormat = d.depth || d.depth_attachment ? VK_FORMAT_D32_SFLOAT : VK_FORMAT_UNDEFINED;
 
     VkGraphicsPipelineCreateInfo gp{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     gp.pNext = &rend;
@@ -654,13 +666,19 @@ bool R3DRenderer::create_pipelines() {
     ao_apply_ = make_pipeline({.vs = c_vs, .fs = aoa_fs, .layout = ao_layout_, .color = VK_FORMAT_R16G16B16A16_SFLOAT,
                                .samples = samples_, .multiply = true});
     sky_fields_pipe_ = make_pipeline({.vs = c_vs, .fs = sky_fs, .layout = sky_layout_, .color = VK_FORMAT_R8G8B8A8_UNORM});
+    // The ambient occlusion multiplied in inside the 3D pass (tile_mode_):
+    // made for that pass's images, writing the colour only
+    if (tile_mode_)
+        ao_apply_inpass_ = make_pipeline({.vs = c_vs, .fs = aoa_fs, .layout = ao_layout_, .color = VK_FORMAT_R16G16B16A16_SFLOAT,
+                                          .samples = samples_, .motion = motion, .glow = glow_pass_, .multiply = true,
+                                          .depth_attachment = true, .first_only = true});
     for (auto m : {r3d_vs, r3d_fs, c_vs, c_fs, b_fs, rays_fs, ao_fs, aoa_fs, sky_fs}) vkDestroyShaderModule(dev_, m, nullptr);
     // Name the ones missing, so a report says which pass this GPU could not build
     bool ok = true;
     for (auto [p, name] : {std::pair{opaque_, "opaque"}, {translucent_, "translucent"}, {trans_depth_, "trans_depth"},
                            {shadow_, "shadow"}, {rays_, "rays"}, {compose_measure_, "compose_measure"},
                            {compose_, "compose"}, {bloom_, "bloom"}, {ao_pass_, "ao"}, {ao_apply_, "ao_apply"},
-                           {sky_fields_pipe_, "sky_fields"}})
+                           {sky_fields_pipe_, "sky_fields"}, {tile_mode_ ? ao_apply_inpass_ : ao_apply_, "ao_apply_inpass"}})
         if (!p) {
             fprintf(stderr, "[vulkan] no %s pipeline%s\n", name, rt_.ready() ? " (ray tracing on)" : "");
             ok = false;
@@ -670,7 +688,7 @@ bool R3DRenderer::create_pipelines() {
 
 void R3DRenderer::destroy_pipelines() {
     for (VkPipeline* p : {&opaque_, &translucent_, &trans_depth_, &shadow_, &rays_, &compose_measure_, &compose_, &bloom_,
-                          &compose_glow_, &ao_pass_, &ao_apply_, &sky_fields_pipe_})
+                          &compose_glow_, &ao_pass_, &ao_apply_, &sky_fields_pipe_, &ao_apply_inpass_})
         if (*p) vkDestroyPipeline(dev_, *p, nullptr), *p = VK_NULL_HANDLE;
 }
 
@@ -730,13 +748,20 @@ void R3DRenderer::ensure_targets(uint32_t w, uint32_t h) {
     avi.components = {VK_COMPONENT_SWIZZLE_A, VK_COMPONENT_SWIZZLE_A, VK_COMPONENT_SWIZZLE_A, VK_COMPONENT_SWIZZLE_ONE};
     avi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     vkCreateImageView(dev_, &avi, nullptr, &color_.alpha_view);
+    // tile_mode_: the multisampled images and the depth are never stored (the
+    // world's depth comes from its own pass), so they need no memory at all
+    const bool tile = tile_mode_ && !motion_pass_;
     if (samples_ != VK_SAMPLE_COUNT_1_BIT)
         create_image(color_ms_, w, h, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                     VK_IMAGE_ASPECT_COLOR_BIT, samples_);
+                     VK_IMAGE_ASPECT_COLOR_BIT, samples_, tile);
     bool dlaa = motion_pass_;
-    create_image(depth_, w, h, VK_FORMAT_D32_SFLOAT,
-                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                 VK_IMAGE_ASPECT_DEPTH_BIT, samples_);
+    if (tile)
+        create_image(depth_, w, h, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                     VK_IMAGE_ASPECT_DEPTH_BIT, samples_, true);
+    else
+        create_image(depth_, w, h, VK_FORMAT_D32_SFLOAT,
+                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                     VK_IMAGE_ASPECT_DEPTH_BIT, samples_);
     // The world's depth, kept after its opaque surfaces (sample 0 of it with
     // MSAA, a copy without) for the ambient occlusion and the soft particles;
     // and the raw occlusion
@@ -786,7 +811,7 @@ void R3DRenderer::ensure_targets(uint32_t w, uint32_t h) {
         create_image(glow_, w, h, VK_FORMAT_R8G8B8A8_UNORM, target, VK_IMAGE_ASPECT_COLOR_BIT);
         if (samples_ != VK_SAMPLE_COUNT_1_BIT)
             create_image(glow_ms_, w, h, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-                         VK_IMAGE_ASPECT_COLOR_BIT, samples_);
+                         VK_IMAGE_ASPECT_COLOR_BIT, samples_, tile);
     }
     for (Image* img : {&bloom_a_, &bloom_b_})
         create_image(*img, std::max(1u, w / 4), std::max(1u, h / 4), VK_FORMAT_R8G8B8A8_UNORM, target,
@@ -1885,7 +1910,11 @@ void R3DRenderer::record_world(const Frame& f) {
     bool ao_on = ao_strength_ > 0 && has_world_;
     // Soft particles need the world's depth too, so they split it as well
     bool split = ao_on || (soft_particles_ && has_world_);
-    ca.storeOp = msaa && !split ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE;
+    // tile_mode_: the world's depth (and the occlusion from it) first, from a
+    // pass of its own; the 3D pass then goes through in one piece
+    const bool tile = tile_mode_ && !motion_pass_;
+    if (tile && split && vcount) record_world_prepass(f, ao_on);
+    ca.storeOp = msaa && (!split || tile) ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE;
     if (msaa) {   // samples are averaged into the single-sample image at the end of the pass
         ca.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
         ca.resolveImageView = color_.view;
@@ -1899,8 +1928,8 @@ void R3DRenderer::record_world(const Frame& f) {
     da.imageView = depth_.view;
     da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    da.storeOp = motion_pass_ || split ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    if (split && msaa) {   // sample 0 of the depth, readable without multisampling
+    da.storeOp = motion_pass_ || (split && !tile) ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    if (split && msaa && !tile) {   // sample 0 of the depth, readable without multisampling
         transition(cmd, depth_resolved_, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
         da.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
         da.resolveImageView = depth_resolved_.view;
@@ -1939,7 +1968,30 @@ void R3DRenderer::record_world(const Frame& f) {
             for (int pass = 0; pass < 2; pass++) {
                 // Between the opaque and the translucent surfaces of the world:
                 // the ambient occlusion, from its depth (the HUD clears it later)
-                if (pass == 1 && split && world_here) {
+                if (pass == 1 && split && world_here && tile) {
+                    // The occlusion (computed before the pass) multiplied into
+                    // the opaque world drawn so far, without leaving the pass
+                    if (ao_on) {
+                        const R3DViewport* w = nullptr;
+                        for (size_t k = i; k < j; k++)
+                            if (vps[k].world) w = &vps[k];
+                        float ap[20];
+                        ao_params(f, *w, ap);
+                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ao_apply_inpass_);
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ao_layout_, 0, 1, &ao_set_, 0, nullptr);
+                        if (rt_.ready())
+                            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ao_layout_, 1, 1, &r3d_set_, 0, nullptr);
+                        VkViewport fv{0, 0, float(out_w), float(out_h), 0, 1};
+                        vkCmdSetViewport(cmd, 0, 1, &fv);
+                        VkRect2D fr{{0, 0}, {out_w, out_h}};
+                        vkCmdSetScissor(cmd, 0, 1, &fr);
+                        vkCmdPushConstants(cmd, ao_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ap), ap);
+                        vkCmdDraw(cmd, 3, 1, 0, 0);
+                        vkCmdBindVertexBuffers(cmd, 0, 1, &vertices_.buffer, &zero);
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r3d_layout_, 0, 1, &r3d_set_, 0,
+                                                nullptr);
+                    }
+                } else if (pass == 1 && split && world_here) {
                     const R3DViewport* w = nullptr;
                     for (size_t k = i; k < j; k++)
                         if (vps[k].world) w = &vps[k];
@@ -2036,7 +2088,103 @@ void R3DRenderer::record_world(const Frame& f) {
 // made readable (soft particles, ambient occlusion) and, with ao_on, the
 // ambient occlusion computed from it and multiplied into the colour so far.
 // Called with no rendering in progress; the caller resumes the 3D pass.
-void R3DRenderer::record_world_depth(const Frame& f, const R3DViewport& w, bool msaa, bool ao_on) {
+void R3DRenderer::ao_params(const Frame& f, const R3DViewport& w, float ap[20]) {
+    const ScreenLayout& lay = f.lay;
+    const uint32_t out_w = f.out_w, out_h = f.out_h;
+    float sx = float(out_w) / lay.view_w, sy = float(out_h) / SCREEN_H;
+    float widen = lay.view_w / SCREEN_W;
+    // The occlusion fades with the fog actually drawn, the weather's included
+    float ao_sun, ao_ambient, ao_fog, ao_fog_color[4];
+    weather_light(w, ao_sun, ao_ambient, ao_fog, ao_fog_color);
+    bool full = w.x <= 0.5f && w.w >= SCREEN_W - 0.5f;
+    float vx = full ? 0.0f : w.x + lay.game_x0, vw = full ? lay.view_w : w.w;
+    static const bool rt_split = getenv("LW_RTSPLIT");   // debugging aid, as in the shadow pass
+    const float v[20] = {w.proj[0] / (full ? widen : 1.0f), w.proj[5], w.proj[8] / (full ? widen : 1.0f),
+                         w.proj[9], vx * sx + f.jitter_x, w.y * sy + f.jitter_y, vw * sx, w.h * sy,
+                         12.0f, std::min(ao_strength_, 1.0f) * 0.85f, ao_fog, w.fog_start,
+                         f.alpha_seed, 0.12f * float(out_h), rt_ao_ ? 6.0f : 0.0f, rt_split ? 1.0f : 0.0f,
+                         shadow_up_[0], shadow_up_[1], shadow_up_[2], shadow_height_};
+    memcpy(ap, v, sizeof(v));
+}
+
+// tile_mode_: the opaque surfaces of the world's priority, depth only and
+// single-sampled, into depth_resolved_ (what the soft particles and the
+// ambient occlusion read), then the occlusion from it; the 3D pass that
+// follows multiplies it in and never stores its multisampled images
+void R3DRenderer::record_world_prepass(const Frame& f, bool ao_on) {
+    VkCommandBuffer cmd = f.cmd;
+    const ScreenLayout& lay = f.lay;
+    const uint32_t out_w = f.out_w, out_h = f.out_h;
+    const auto& vps = scene_->viewports;
+    // The priority group the world is in (each group has its own depth)
+    int prio = 0;
+    const R3DViewport* world = nullptr;
+    for (const R3DViewport& v : vps)
+        if (v.world) {
+            prio = v.priority, world = &v;
+            break;
+        }
+    if (!world) return;
+    depth_resolved_.layout = VK_IMAGE_LAYOUT_UNDEFINED;   // fully rewritten
+    transition(cmd, depth_resolved_, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+    VkRenderingAttachmentInfo none{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    VkRenderingAttachmentInfo da{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    da.imageView = depth_resolved_.view;
+    da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    da.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    da.clearValue.depthStencil = {0.0f, 0};
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, {out_w, out_h}};
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &none;
+    ri.pDepthAttachment = &da;
+    vkCmdBeginRendering(cmd, &ri);
+    VkDeviceSize zero = 0;
+    vkCmdBindVertexBuffers(cmd, 0, 1, &vertices_.buffer, &zero);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r3d_layout_, 0, 1, &r3d_set_, 0, nullptr);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_);   // (depth only, single-sampled)
+    float sx = float(out_w) / lay.view_w, sy = float(out_h) / SCREEN_H;
+    float widen = lay.view_w / SCREEN_W;
+    for (const R3DViewport& v : vps) {
+        if (v.priority != prio || !v.opaque_count) continue;
+        // Placed exactly as in record_world's opaque pass
+        bool full = v.x <= 0.5f && v.w >= SCREEN_W - 0.5f;
+        float vx = full ? 0.0f : v.x + lay.game_x0, vw = full ? lay.view_w : v.w;
+        VkViewport viewport{vx * sx + f.jitter_x, v.y * sy + f.jitter_y, vw * sx, v.h * sy, 0.0f, 1.0f};
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        int32_t x0 = std::max(0, int32_t(vx * sx)), y0 = std::max(0, int32_t(v.y * sy));
+        VkRect2D sc{{x0, y0},
+                    {std::min(out_w - uint32_t(x0), uint32_t(vw * sx + 0.5f)),
+                     std::min(out_h - uint32_t(y0), uint32_t(v.h * sy + 0.5f))}};
+        vkCmdSetScissor(cmd, 0, 1, &sc);
+        ViewportPush pc{};
+        memcpy(pc.proj, v.proj, 64);
+        if (full) {
+            pc.proj[0] /= widen;
+            pc.proj[8] /= widen;
+        }
+        pc.sun[0] = v.sun[0];
+        pc.sun[1] = v.sun[1];
+        pc.sun[2] = v.sun[2];
+        pc.params[2] = v.fog_start;
+        pc.params[3] = f.before;
+        pc.quality[0] = -2000.0f;   // r3d.frag: depth only, the opaque pass's rules
+        pc.quality[1] = aniso_;
+        pc.quality[2] = full ? 2.0f * lay.game_x0 / lay.view_w : 0.0f;
+        pc.quality[3] = interp_;
+        vkCmdPushConstants(cmd, r3d_layout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+        vkCmdDraw(cmd, v.opaque_count, 1, v.opaque_first, 0);
+    }
+    vkCmdEndRendering(cmd);
+    gpu_time_mark(cmd, 4);
+    // The occlusion from it (record_world_depth without the copy and the apply)
+    record_world_depth(f, *world, true, ao_on, false);
+    gpu_time_mark(cmd, 5);
+}
+
+void R3DRenderer::record_world_depth(const Frame& f, const R3DViewport& w, bool msaa, bool ao_on, bool apply) {
     VkCommandBuffer cmd = f.cmd;
     const ScreenLayout& lay = f.lay;
     const uint32_t out_w = f.out_w, out_h = f.out_h;
@@ -2099,7 +2247,7 @@ void R3DRenderer::record_world_depth(const Frame& f, const R3DViewport& w, bool 
     transition(cmd, ao_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     // Multiplied into the colour as drawn so far (the opaque world)
     Image& ctarget = msaa ? color_ms_ : color_;
-    fullscreen(ao_apply_, ctarget, ctarget.view, out_w, out_h);
+    if (apply) fullscreen(ao_apply_, ctarget, ctarget.view, out_w, out_h);
     }
 }
 

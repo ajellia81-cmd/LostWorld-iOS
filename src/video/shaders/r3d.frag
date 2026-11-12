@@ -347,6 +347,13 @@ void main() {
 
     vec4 c = t * col;
     if (c.a < 1.0 / 32.0) discard;
+    // The world's depth before the 3D pass (tile-based GPUs, r3d_renderer.cpp
+    // record_world_prepass): the opaque surfaces as the opaque pass keeps
+    // them, nothing else computed
+    if (vp.quality.x <= -2000.0) {
+        if ((flags & TEX_ALPHA) != 0u && c.a < 1.0) discard;
+        return;
+    }
     // Depth of the nearest see-through surface (spec 7.2); effects stay out of it
     if (vp.quality.x <= -1000.0) {
         if ((flags & (TEX_ALPHA | ALPHA_TEST | LUMINOUS)) != 0u) discard;

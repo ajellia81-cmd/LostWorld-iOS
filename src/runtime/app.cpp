@@ -873,6 +873,9 @@ struct App {
     std::vector<uint32_t> touch_pixels;
     bool touch_shown = false;
     void update_touch();
+    bool app_inactive = false;
+    void on_app_inactive();
+    void on_app_active();
 #endif
     MenuMusic music;   // over the menus' backdrop, when there is a music file
     double music_time = 0;
@@ -1491,6 +1494,16 @@ void App::run() {
     for (;;) {
         wait_for_refresh();   // before the inputs are read
         if (!presenter.pump()) break;
+#ifndef _WIN32
+        // iOS port: away from the app (home screen, app switcher, Control
+        // Center, a call): the game holds in the pause menu, and nothing goes
+        // to the GPU (iOS would take the Vulkan device away) until it is back
+        if (!platform_app_active()) {
+            on_app_inactive();
+            continue;
+        }
+        if (app_inactive) on_app_active();
+#endif
         double loop_from = now_seconds();
         update_survival();
         update_toast();
@@ -2015,6 +2028,34 @@ void App::update_touch() {
         if (tw > 0 && th > 0 && touch.any_shown()) touch_layer.set_image(touch_pixels.data(), uint32_t(tw), uint32_t(th));
         else touch_layer.hide();
     }
+}
+#endif
+
+#ifndef _WIN32
+void App::on_app_inactive() {
+    if (!app_inactive) {
+        app_inactive = true;
+        compat_set_focus(false);
+        compat_release_keys();
+        presenter.wait_idle();   // whatever was submitted finishes while the app may still use the GPU
+        // In a game, the pause menu (as Esc): the game thread holds there
+        if (g_opt.menu && !frontend.active() && !intro) {
+            frontend.open(Frontend::Screen::Pause);
+            g_menu_open = g_hold = true;
+        }
+        g_sound.set_muted(true);
+        printf("[app] in the background: paused\n");
+        fflush(stdout);
+    }
+    SDL_Delay(50);
+}
+
+void App::on_app_active() {
+    app_inactive = false;
+    compat_set_focus(true);
+    g_sound.set_muted(g_boot_skip);
+    presenter.recreate_swapchain();   // the layer may have changed while away
+    printf("[app] back in front\n");
 }
 #endif
 

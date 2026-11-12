@@ -131,6 +131,10 @@ public:
     };
     SafeArea safe_area() const { return safe_; }
     SDL_Window* window() const { return window_; }
+    void wait_idle() {
+        if (device_) vkDeviceWaitIdle(device_);
+    }
+    void recreate_swapchain() { resized_ = true; }
 #endif
 
 private:

@@ -80,3 +80,16 @@ int platform_thermal_state() {
     return -1;
 #endif
 }
+
+bool platform_app_active() {
+#ifdef __APPLE__
+    static Class cls = objc_getClass("UIApplication");
+    if (!cls) return true;
+    id app = reinterpret_cast<id (*)(Class, SEL)>(objc_msgSend)(cls, sel_registerName("sharedApplication"));
+    if (!app) return true;
+    // UIApplicationStateActive = 0, Inactive = 1, Background = 2
+    return reinterpret_cast<long (*)(id, SEL)>(objc_msgSend)(app, sel_registerName("applicationState")) == 0;
+#else
+    return true;
+#endif
+}

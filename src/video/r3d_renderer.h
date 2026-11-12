@@ -216,7 +216,8 @@ private:
     bool create_buffer(Buffer& b, size_t size, VkBufferUsageFlags usage, bool device_local = false);
     void destroy_buffer(Buffer& b);
     bool create_image(Image& img, uint32_t w, uint32_t h, VkFormat format, VkImageUsageFlags usage,
-                      VkImageAspectFlags aspect, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
+                      VkImageAspectFlags aspect, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT,
+                      bool transient = false);   // tile memory only, when the GPU has it (lazily allocated)
     void destroy_image(Image& img);
     void transition(VkCommandBuffer cmd, Image& img, VkImageLayout to,
                     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
@@ -239,9 +240,18 @@ private:
         bool additive = false;                 // colour += output (sky glow)
         float ease = 0;                        // > 0: colour moves this fraction towards the output
         bool depth_only = false;               // no colour writes
+        bool depth_attachment = false;         // the pass has a depth image this one leaves alone
+        bool first_only = false;               // only the first colour attachment is written
         const VkSpecializationInfo* fs_spec = nullptr;   // specialization constants of the fragment shader
     };
     VkPipeline make_pipeline(const PipelineDesc& d);
+    // Tile-based GPUs (iOS port): the world's depth comes from a depth-only
+    // pass before the 3D pass, so the ambient occlusion and the soft particles
+    // no longer split the 3D pass in two (each half stored its multisampled
+    // images to memory and read them back), and the multisampled images live
+    // in tile memory only (memoryless). LW_TILE=0 turns it off
+    bool tile_mode_ = false;
+    VkPipeline ao_apply_inpass_ = VK_NULL_HANDLE;
     void bind_scene_image(VkImageView view, VkImageView alpha);
     void update_atmosphere(const ScreenLayout& lay, uint32_t target_w, uint32_t target_h);
     bool back_layer_extended() const;
@@ -290,7 +300,9 @@ private:
     void record_sky_fields(const Frame& f);
     void record_shadows(const Frame& f);
     void record_world(const Frame& f);
-    void record_world_depth(const Frame& f, const R3DViewport& w, bool msaa, bool ao_on);
+    void record_world_depth(const Frame& f, const R3DViewport& w, bool msaa, bool ao_on, bool apply = true);
+    void record_world_prepass(const Frame& f, bool ao_on);   // tile_mode_
+    void ao_params(const Frame& f, const R3DViewport& w, float ap[20]);
     void record_dlaa(const Frame& f);
     ComposePush compose_push(const Frame& f) const;
     static ComposePush reduced(const ComposePush& pc, const Image& to);

@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "platform_files.h"
 #include "sdl_events.h"
 
 #ifdef __APPLE__
@@ -388,6 +389,10 @@ bool VkPresenter::init(const char* title, int width, int height, bool with_ngx) 
            khr_dynamic_rendering_ ? " (dynamic rendering through VK_KHR_dynamic_rendering)" : "",
            limits_.maxPerStageDescriptorSampledImages, limits_.maxPushConstantsSize, missing.empty() ? "" : "; without ",
            missing.c_str());
+    // (the limits the renderer's descriptor arrays are sized by)
+    printf("[vulkan] limits: samplers %u/stage %u/set, sampled images %u/set, resources %u/stage\n",
+           limits_.maxPerStageDescriptorSamplers, limits_.maxDescriptorSetSamplers, limits_.maxDescriptorSetSampledImages,
+           limits_.maxPerStageResources);
     // Dynamic rendering: the 1.3 feature block or, on a 1.2 driver, the
     // extension's own (the 1.3 block is not valid there)
     VkPhysicalDeviceVulkan13Features f13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
@@ -580,6 +585,13 @@ void VkPresenter::handle_event(const SDL_Event& e) {
         update_size();
         resized_ = true;
         break;
+    case SDL_EVENT_WINDOW_FOCUS_LOST:   // (iOS: the app switcher, Control Center)
+        compat_set_focus(false);
+        compat_release_keys();
+        break;
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+        compat_set_focus(true);
+        break;
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
         int vk = to_vk(e.key.key);
@@ -677,7 +689,7 @@ void VkPresenter::run_once(const std::function<void(VkCommandBuffer)>& fn) {
 void VkPresenter::frame(const RecordFn& record) {
     if (!device_) return;
     // In the background iOS takes the GPU away: nothing is drawn
-    if (!GetForegroundWindow()) {
+    if (!GetForegroundWindow() || !platform_app_active()) {
         SDL_Delay(16);
         return;
     }
