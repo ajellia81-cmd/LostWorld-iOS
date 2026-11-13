@@ -2012,6 +2012,12 @@ void R3DRenderer::record_world(const Frame& f) {
                 clr.clearValue.depthStencil = {0.0f, 0};
                 VkClearRect rect{{{0, 0}, {out_w, out_h}}, 0, 1};
                 vkCmdClearAttachments(cmd, 1, &clr, 1, &rect);
+                // MoltenVK clears inside a pass by drawing with its own
+                // pipeline, which leaves the 3D set's textures unbound on
+                // Metal: the HUD after it read texture RAM as 0 (the ammo
+                // counter came out black). Bound again for what follows.
+                vkCmdBindVertexBuffers(cmd, 0, 1, &vertices_.buffer, &zero);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r3d_layout_, 0, 1, &r3d_set_, 0, nullptr);
             }
             first_priority = false;
             bool world_here = false;
