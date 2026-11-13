@@ -839,6 +839,10 @@ struct App {
     TextHD text;   // menus, captions and score drawn from vector fonts
     std::atomic<bool> capture_2d{false};   // F12 / --shot: the next 2D composition is saved
     bool f12_was_down = false, f9_was_down = false, f8_was_down = false;
+    // After a snapshot (F9) the same picture with each HUD shading diagnosis
+    // mode: mode, then frames to wait (the pipelines are made again first)
+    int snap_mode = 0, snap_wait = 0;
+    std::string snap_base;
     R3DScene own_scene;   // built on this thread (no interpolation)
     const R3DScene* scene = &own_scene;
     Layers2D own_layers;   // composed on this thread (no 3D, or no interpolation)
@@ -2219,8 +2223,29 @@ void App::read_inputs() {
         dump_scene(*scene, layers_shown->back.data(), layers_shown->front.data(), (base + ".txt").c_str());
         presenter.capture_next(base + ".bmp");
         printf("Snapshot saved to %s.bin\n", base.c_str());
+        snap_base = base;
+        snap_mode = 0;
+        snap_wait = 4;
     }
     f9_was_down = f9;
+    if (!snap_base.empty() && --snap_wait <= 0) {
+        // Odd steps: a mode goes on; even steps (some frames later, when it is
+        // on screen): its picture is taken. The last step turns it off again.
+        int step = snap_mode++;
+        int mode = step / 2 + 1;
+        if (step == 6) {
+            while (renderer.hud_debug() != 0) renderer.toggle_hud_debug();
+            snap_base.clear();
+            printf("[hud] diagnosis pictures done\n");
+        } else if (step % 2 == 0) {
+            while (renderer.hud_debug() != mode) renderer.toggle_hud_debug();
+            snap_wait = 8;
+        } else {
+            presenter.capture_next(snap_base + "_mode" + std::to_string(mode) + ".bmp");
+            printf("[hud] diagnosis picture mode %d: %s_mode%d.bmp\n", mode, snap_base.c_str(), mode);
+            snap_wait = 4;
+        }
+    }
     bool f8 = GetForegroundWindow() == presenter.hwnd() && (GetAsyncKeyState(VK_F8) & 0x8000);
     if (f8 && !f8_was_down) {   // HUD shading diagnosis on or off (iOS: four fingers)
         renderer.toggle_hud_debug();
