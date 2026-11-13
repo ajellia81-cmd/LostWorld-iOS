@@ -69,7 +69,7 @@ void settings_from_options(const Options& o, FrontendSettings& s) {
     s.weather_sound = std::clamp(o.weather_sound, 0, 3);
     s.aa = o.dlaa ? 1 : o.msaa <= 1 ? 2 : 0;
     if (o.msaa > 1) s.msaa = o.msaa >= 8 ? 8 : o.msaa >= 4 ? 4 : 2;
-    s.aniso = o.aniso <= 0 ? 0 : o.aniso < 4 ? 2 : o.aniso < 8 ? 4 : o.aniso < 16 ? 8 : 16;
+    s.aniso = o.aniso <= 0 ? 0 : o.aniso < 2 ? 1 : o.aniso < 4 ? 2 : o.aniso < 8 ? 4 : o.aniso < 16 ? 8 : 16;   // (1: ARCADE)
     s.smooth_2d = !o.pixel_2d;
     s.scale = FrontendSettings::SCALES[0];   // the nearest step at or below
     for (int sc : FrontendSettings::SCALES)
