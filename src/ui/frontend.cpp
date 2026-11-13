@@ -296,7 +296,12 @@ const std::vector<Frontend::Setting>& Frontend::setting_table() {
          .words = {"original", "smooth"}, .other = 1, .kind = CHOICE, .shown = {L"ORIGINAL", L"SMOOTH"},
          .hint = L"Smooth: the 3D is also drawn between the game's 57.5 frames, at your monitor's refresh rate"},
         {.id = OPT_AA, .tab = DISPLAY_TAB, .label = L"ANTI-ALIASING", .key = "aa", .number = &FS::aa,
-         .words = {"msaa", "dlaa", "none"}, .also = {{"off", 2}}, .kind = CHOICE, .shown = {L"MSAA", L"DLAA", L"OFF"},
+         .words = {"msaa", "dlaa", "none"}, .also = {{"off", 2}}, .kind = CHOICE,
+#ifdef _WIN32
+         .shown = {L"MSAA", L"DLAA", L"OFF"},
+#else   // iOS port: no DLAA (NVIDIA only)
+         .shown = {L"MSAA", L"OFF"}, .steps = {0, 2},
+#endif
          .hint = L"Edge smoothing: MSAA (the samples below), NVIDIA DLAA or none.  DLAA applies on the next start"},
         {.id = OPT_MSAA, .tab = DISPLAY_TAB, .label = L"MSAA SAMPLES", .key = "msaa", .number = &FS::msaa, .lo = 2, .hi = 8,
          .kind = CHOICE, .shown = {L"2X", L"4X", L"8X"}, .steps = {2, 4, 8}, .levels = true,
@@ -365,10 +370,16 @@ const std::vector<Frontend::Setting>& Frontend::setting_table() {
          .kind = TOGGLE, .hint = L"Music in the menus (res/menu/music.mp3, or your own in third_party/menu/), at the sound volume"},
         {.id = OPT_SPEAKERS, .tab = AUDIO_TAB, .label = L"SPEAKERS", .key = "speakers", .number = &FS::speakers,
          .words = {"stereo", "surround", "headphones"}, .kind = CHOICE,
+#ifdef _WIN32
          .shown = {L"STEREO", L"SURROUND 4.0", L"HEADPHONES"},
          .hints = {L"Front and rear sound mixed on two speakers",
                    L"Rear sound on your rear speakers, as on the cabinet (4.0, 5.1 or 7.1)",
                    L"Two ears: gentle crossfeed, and the rear sound placed behind you"}},
+#else   // iOS port: two channels out, no surround
+         .shown = {L"STEREO", L"HEADPHONES"}, .steps = {0, 2},
+         .hints = {L"Front and rear sound mixed on two speakers",
+                   L"Two ears: gentle crossfeed, and the rear sound placed behind you"}},
+#endif
         {.id = OPT_REAR, .tab = AUDIO_TAB, .label = L"REAR LEVEL", .key = "rear_boost", .number = &FS::rear_boost, .lo = -6,
          .hi = 12, .grain = 3, .kind = CHOICE, .steps = {-6, -3, 0, 3, 6, 9, 12}, .text = decibels,
          .hint = L"Rear speakers quieter or louder, as the cabinet's seat speakers: T-Rex roars and many effects"},
@@ -597,6 +608,16 @@ std::vector<Frontend::Item> Frontend::option_items(const FrontendSettings& s) co
     std::vector<Item> all;
     for (const Setting& d : setting_table()) {
         if (d.id == NO_ROW) continue;
+#ifndef _WIN32
+        // iOS port: what a phone has no use for (always full screen and fitted
+        // to its width, always vsync, no ray tracing, no file dialog, no second
+        // mouse, no gun test, no update check, no surround)
+        switch (d.id) {
+        case OPT_DISPLAY: case OPT_ASPECT: case OPT_VSYNC: case OPT_RT: case OPT_CROSS_P1: case OPT_CROSS_P2:
+        case OPT_MICE: case OPT_GUN_TEST: case OPT_UPDATES: case OPT_REAR: continue;
+        default: break;
+        }
+#endif
         Item it{d.id, d.label, L"", d.hint};
         it.kind = d.kind;
         int v = d.get(s);
@@ -677,7 +698,10 @@ std::vector<Frontend::Item> Frontend::items() const {
                 {OPTIONS, L"OPTIONS", L"", L"Display, sound and graphics"},
                 {RECORDS, L"RECORDS", L"", L"Achievements and your statistics"},
                 {MORE_GAMES, L"MORE RECOMPS", L"", L"Other arcade games recompiled for PC by snicolast"},
-                {QUIT, L"QUIT", L"", L"Close the game"}};
+#ifdef _WIN32   // (an iOS app is left with the home gesture)
+                {QUIT, L"QUIT", L"", L"Close the game"}
+#endif
+        };
     case Screen::More:
     {
         std::vector<Item> list;
@@ -695,7 +719,9 @@ std::vector<Frontend::Item> Frontend::items() const {
     }
     case Screen::Play:
         return {{CLASSIC, L"CLASSIC ARCADE", L"", L"The arcade game: as it was, or with the dinosaurs shuffled"},
+#ifdef _WIN32   // (iOS: the boss states are made by another copy of the game, which an app cannot start)
                 {BOSS, L"BOSS FIGHT", L"", L"Pick a boss and go straight to the fight"},
+#endif
                 {SURVIVAL, L"SURVIVAL", L"", L"Hold one spot against endless waves of dinosaurs"},
                 {BACK, L"BACK", L"", L"Return to the main menu"}};
     case Screen::Classic:
@@ -950,7 +976,7 @@ void Frontend::back() {
         break;
     case Screen::Records: open(Screen::Main); selected_ = index_of(RECORDS); break;
     case Screen::More: open(Screen::Main); selected_ = index_of(MORE_GAMES); break;
-    case Screen::Survival: open(Screen::Play); selected_ = 2; break;   // onto Survival
+    case Screen::Survival: open(Screen::Play); selected_ = index_of(SURVIVAL); break;   // onto Survival
     case Screen::Classic: open(Screen::Play); selected_ = 0; break;    // onto Classic arcade
     case Screen::Weather:   // onto the arena, or RANDOM SPAWNS
         if (weather_for_survival_) {
@@ -962,7 +988,11 @@ void Frontend::back() {
         }
         break;
     case Screen::Pause: push(Action::Resume); break;
+#ifdef _WIN32
     case Screen::Main: selected_ = index_of(QUIT); dirty_ = true; break;
+#else
+    case Screen::Main: break;
+#endif
     case Screen::GunTest: {   // onto its row in CONTROLS
         tab_ = CONTROLS_TAB;
         open(Screen::Options);

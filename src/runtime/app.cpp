@@ -2713,6 +2713,9 @@ int main(int argc, char** argv) {
             if (FILE* f = fopen("save/ios_defaults_arcade", "w")) fclose(f);
             printf("[video] iPhone defaults: 100%% resolution, full screen, 120 Hz; the arcade's own picture\n");
         }
+        // Choices the phone does not offer (DLAA, surround), set on a PC or before
+        if (ini.aa == 1) ini.aa = 2;
+        if (ini.speakers == 1) ini.speakers = 0;
 #endif
         options_from_settings(ini, g_opt);
         g_pad_settings = {ini.pad_speed, ini.gyro, ini.gyro_speed, ini.vibration, ini.aim_assist};
