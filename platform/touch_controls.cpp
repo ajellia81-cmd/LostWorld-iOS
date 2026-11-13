@@ -114,10 +114,7 @@ bool TouchControls::on_event(const SDL_Event& e, float x, float y) {
     auto held = std::find_if(held_.begin(), held_.end(), [&](const Held& h) { return h.finger == finger; });
     if (e.type == SDL_EVENT_FINGER_DOWN) {
         if (std::find(down_.begin(), down_.end(), finger) == down_.end()) down_.push_back(finger);
-        // (a little later, so that a fourth finger can still make it the other gesture)
-        if (down_.size() == 3) snap_from_ = now_ + 0.15, snap_until_ = now_ + 0.4;
-        if (down_.size() == 4) {   // (not a snapshot): the frame rate on or off
-            snap_until_ = 0;
+        if (down_.size() == 4) {   // the frame rate on or off
             fps_on_ = !fps_on_;
             if (!fps_on_) fps_.clear();
         }
@@ -179,7 +176,6 @@ void TouchControls::update(double now) {
     compat_set_touch_key(VK_RBUTTON, in_game_ && !pad_ && reload);
     compat_set_touch_key('5', now >= coin_from_ && now < coin_until_);
     compat_set_touch_key('1', now >= start_from_ && now < start_until_);
-    compat_set_touch_key(VK_F9, now < snap_until_ && now > snap_from_);
 }
 
 int TouchControls::take_key() {
