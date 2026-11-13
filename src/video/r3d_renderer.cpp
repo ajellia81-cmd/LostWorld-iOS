@@ -1846,6 +1846,13 @@ void R3DRenderer::record_ray_tracing(const Frame& f) {
 // in turn over the panorama's 32 frames differ by far less than a pixel
 void R3DRenderer::record_sky_fields(const Frame& f) {
     VkCommandBuffer cmd = f.cmd;
+    // Only the procedural sky reads these clouds (SKY: PROCEDURAL); with the
+    // game's own sky they are not drawn, and drawn whole when it comes back
+    if (!night_sky_) {
+        sky_fields_all_ = true;
+        transition(cmd, sky_fields_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        return;
+    }
     uint32_t y0 = sky_fields_all_ ? 0 : sky_fields_row_;
     uint32_t rows = sky_fields_all_ ? sky_fields_.h : SKY_FIELDS_ROWS;
     sky_fields_all_ = false;
@@ -2073,7 +2080,7 @@ void R3DRenderer::record_world(const Frame& f) {
                                             nullptr);
                 }
                 // tile_mode_: the solid surfaces' depth first (r3d.frag, -3000)
-                const bool early_z = tile && pass == 0;
+                const bool early_z = tile && pass == 0 && early_z_mode_ > 0;
                 for (int sub = early_z ? 0 : 1; sub < 2; sub++) {
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                   sub == 0 ? early_z_ : pass == 0 ? opaque_ : translucent_);
@@ -2132,7 +2139,11 @@ void R3DRenderer::record_world(const Frame& f) {
                     }
                     if (sub == 0) {
                         if (!count) continue;
-                        pc.quality[0] = -3000.0f;
+                        // Alpha-tested surfaces (the forest's ferns, layer upon
+                        // layer) too, with their texture's cut-out: then only
+                        // the nearest is shaded. Not with MSAA, whose cut-out
+                        // edges are partial coverage the depth pass cannot match
+                        pc.quality[0] = early_z_mode_ >= 2 && samples_ == 1 ? -2000.0f : -3000.0f;
                         vkCmdPushConstants(cmd, r3d_layout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                            sizeof(pc), &pc);
                         vkCmdDraw(cmd, count, 1, v.opaque_first, 0);
@@ -2811,8 +2822,9 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
                     last = t[i][0];
                 }
             gpu_sum_[0] += double(t[GPU_MARKS - 1][0] - t[0][0]) * timestamp_period_ * 1e-6;
-            bench_ms_ += double(t[GPU_MARKS - 1][0] - t[0][0]) * timestamp_period_ * 1e-6;
-            bench_frames_++;
+            double ms = double(t[GPU_MARKS - 1][0] - t[0][0]) * timestamp_period_ * 1e-6;
+            bench_ms_ += ms, overlay_ms_ += ms;
+            bench_frames_++, overlay_frames_++;
             if (++gpu_frames_ == 300) {
                 static const char* const names[GPU_MARKS] = {"whole frame", "sky panorama", "ray tracing build",
                                                              "shadow map", "3D opaque", "ambient occlusion", "3D rest",

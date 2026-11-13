@@ -1705,6 +1705,7 @@ void App::apply_video_options(const Options* was) {
     renderer.set_hdr(o.hdr);
     renderer.set_rim_light(o.rim);
     renderer.set_relief(o.relief);
+    renderer.set_early_z(o.early_z);
     renderer.set_sharpen(o.sharpen ? 0.5f : 0.0f);
     renderer.set_modern_torch(o.modern_torch);
     if (!was || o.sky_procedural != was->sky_procedural) {
@@ -2042,23 +2043,17 @@ void App::update_bench() {
     };
     // (bench_v2 measured the anisotropic filtering, surface detail, haze,
     // shadows, ambient occlusion, soft particles, HDR and rim light)
+    // (bench_v3: resolution, rain, torch, sharpening, xBR, shafts, bloom)
+    // bench_v4: the early depth of the 3D pass, with the arcade's own options
     static const Step STEPS[] = {
-        {"3D at 50% (pixel bound?)", [](Options& o) { o.supersample = 0.5f; }},
-        {"3D at 75%", [](Options& o) { o.supersample = 0.75f; }},
-        {"rain off", [](Options& o) { o.rain = 0; }},
-        {"modern torch off", [](Options& o) { o.modern_torch = false; }},
-        {"sharpening off", [](Options& o) { o.sharpen = false; }},
-        {"xBR 2D off", [](Options& o) { o.pixel_2d = true; }},
-        {"light shafts off", [](Options& o) { o.shafts = false; }},
-        {"bloom off", [](Options& o) { o.bloom = 0; }},
-        {"everything above off", [](Options& o) {
-             o.ao = 0, o.relief = false, o.soft = false, o.rim = false, o.hdr = false, o.haze = 0, o.aniso = 4;
-         }},
+        {"early depth: solid only", [](Options& o) { o.early_z = 1; }},
+        {"early depth: none", [](Options& o) { o.early_z = 0; }},
+        {"3D at 75% (pixel bound?)", [](Options& o) { o.supersample = 0.75f; }},
     };
     constexpr int COUNT = int(sizeof(STEPS) / sizeof(STEPS[0]));
     constexpr double HALF = 0.6, SETTLE = 0.2;   // each half, and its first part not counted
     constexpr int HALVES = 8;
-    static int step = file_exists("save/bench_v3") || !g_opt.menu ? COUNT : -1;
+    static int step = file_exists("save/bench_v4") || !g_opt.menu ? COUNT : -1;
     static Options base;
     static double half_from = 0;
     static int half = 0;
@@ -2110,7 +2105,7 @@ void App::update_bench() {
         Options was = g_opt;
         g_opt = base;
         apply_video_options(&was);
-        if (FILE* f = fopen("save/bench_v3", "w")) fclose(f);
+        if (FILE* f = fopen("save/bench_v4", "w")) fclose(f);
         printf("[bench] done; the settings are as they were\n");
     }
 }
@@ -2181,6 +2176,7 @@ void App::on_app_active() {
 void App::read_inputs() {
 #ifndef _WIN32
     update_touch();
+    update_bench();   // once, in the first minute of play (save/bench_v4)
 #endif
     update_aim_reach(presenter.hwnd());
     poll_keyboard_mouse(presenter.hwnd());
@@ -2614,7 +2610,7 @@ void App::update_title() {
 #ifndef _WIN32
         {   // The frame rate on screen (four fingers), with the GPU's time per image
             int gpu_frames = 0;
-            double gpu_ms = renderer.take_gpu_ms(gpu_frames);
+            double gpu_ms = renderer.take_overlay_gpu_ms(gpu_frames);
             char fps[64];
             if (gpu_frames > 0) snprintf(fps, sizeof fps, "%llu fps  GPU %.1f ms", hz, gpu_ms / gpu_frames);
             else snprintf(fps, sizeof fps, "%llu fps", hz);

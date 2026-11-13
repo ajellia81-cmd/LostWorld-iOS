@@ -272,9 +272,20 @@ public:
         return s;
     }
 
+    // The same for the frame rate on screen (its own sum)
+    double take_overlay_gpu_ms(int& frames) {
+        double s = overlay_ms_;
+        frames = overlay_frames_;
+        overlay_ms_ = 0, overlay_frames_ = 0;
+        return s;
+    }
+    // Tile-based GPUs: 0 no early depth, 1 solid surfaces, 2 also alpha-tested ones
+    void set_early_z(int mode) { early_z_mode_ = mode; }
+
 private:
-    double bench_ms_ = 0;
-    int bench_frames_ = 0;
+    double bench_ms_ = 0, overlay_ms_ = 0;
+    int bench_frames_ = 0, overlay_frames_ = 0;
+    int early_z_mode_ = 2;
     void bind_scene_image(VkImageView view, VkImageView alpha);
     void update_atmosphere(const ScreenLayout& lay, uint32_t target_w, uint32_t target_h);
     bool back_layer_extended() const;
