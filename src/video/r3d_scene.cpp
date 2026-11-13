@@ -98,6 +98,7 @@ void R3DSceneBuilder::build(const R3DFrameState& state, R3DScene& out) {
                      [](const R3DViewport& a, const R3DViewport& b) { return a.priority < b.priority; });
     if (remove_letterbox_) r3d_strip_letterbox(out);
     if (hud_edges_) r3d_anchor_hud(out);
+    if (hide_sight_) r3d_hide_sight(out, hide_x_, hide_y_, keep_x_, keep_y_);
     if (pack_ && texture_ram_ && pack_->active()) apply_texture_pack(out);
     link_previous(out);
 }

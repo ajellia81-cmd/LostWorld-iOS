@@ -137,6 +137,14 @@ static bool g_menu_open = false;     // a menu has the controls
 static bool g_block_buttons = false; // after a menu closes: buttons ignored until released
 static int g_p1_pad = -1;            // the gamepad aiming for player 1; -1: the mouse (whichever moved last)
 static bool g_p2_pad = false;        // a gamepad is player 2's (poll_gamepads)
+// iOS port: player 2's sight is not shown while nobody plays player 2. Its
+// gun rests in the bottom right corner (clear of what the menus draw near the
+// camera) and the scene builder leaves out the sight drawn there
+struct HiddenSight {
+    std::atomic<bool> on{false};
+    std::atomic<float> x{0}, y{0}, keep_x{0}, keep_y{0};
+};
+static HiddenSight g_hidden_sight;
 // While player 2 has a gun of its own (a second mouse, raw_mice.h): the
 // gamepad aiming for player 2 instead, -1: the gun. A pad of player 2's takes
 // the sight only when it aims and the gun has been still for a moment, so a
@@ -1252,6 +1260,8 @@ void App::prepare_frames() {
             bool layers = p->layers.frame != ~0ull;
             if (layers) layers_worker.run([&] { compose_2d(p->layers); });
             double from = now_seconds();
+            builder.set_hidden_sight(g_hidden_sight.on, g_hidden_sight.x, g_hidden_sight.y, g_hidden_sight.keep_x,
+                                     g_hidden_sight.keep_y);
             builder.build(*state, p->scene);
             double built_at = now_seconds();
             pictures.replacements = pack.take_new_images();
@@ -2188,6 +2198,15 @@ void App::read_inputs() {
 #ifndef _WIN32
     update_touch();
     update_bench();   // once, in the first minute of play (save/bench_v4)
+#endif
+#ifndef _WIN32
+    {   // Player 2's sight, while nobody plays player 2 (g_hidden_sight)
+        bool hide = !g_inputs.p[1].playing;
+        if (hide && !g_p2_pad) set_player_aim(1, 0.97f, 0.97f);   // no device of player 2's: its gun rests in a corner
+        PlayerAim a2 = player_aim(1), a1 = player_aim(0);
+        g_hidden_sight.x = a2.x, g_hidden_sight.y = a2.y, g_hidden_sight.keep_x = a1.x, g_hidden_sight.keep_y = a1.y;
+        g_hidden_sight.on = hide;
+    }
 #endif
     update_aim_reach(presenter.hwnd());
     poll_keyboard_mouse(presenter.hwnd());

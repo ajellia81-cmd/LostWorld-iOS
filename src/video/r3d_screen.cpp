@@ -47,6 +47,31 @@ void r3d_anchor_hud(R3DScene& out) {
     }
 }
 
+void r3d_hide_sight(R3DScene& out, float x, float y, float keep_x, float keep_y) {
+    if (out.viewports.empty()) return;
+    int scene_priority = out.viewports.front().priority;
+    for (const R3DViewport& v : out.viewports) {
+        if (v.priority == scene_priority) continue;
+        // The sight's point in this viewport's pixels (fractions of the 496x384 screen)
+        float px = x * 496.0f, py = y * 384.0f, kx = keep_x * 496.0f, ky = keep_y * 384.0f;
+        for (int pass = 0; pass < 2; pass++) {
+            uint32_t first = pass ? v.trans_first : v.opaque_first, count = pass ? v.trans_count : v.opaque_count;
+            for (uint32_t t = 0; t + 2 < count; t += 3) {
+                R3DVertex* tri = &out.vertices[first + t];
+                float b[4];
+                if (-tri[0].pos[2] >= 10.0f || !screen_bbox(v, tri, b)) continue;   // sights are near geometry
+                if (b[2] - b[0] > 48.0f || b[3] - b[1] > 48.0f) continue;          // and small
+                const float slop = 3.0f;
+                auto holds = [&](float qx, float qy) {
+                    return qx >= b[0] - slop && qx <= b[2] + slop && qy >= b[1] - slop && qy <= b[3] + slop;
+                };
+                if (!holds(px, py) || holds(kx, ky)) continue;   // (player 1's sight on the same spot stays)
+                for (int k = 1; k < 3; k++) memcpy(tri[k].pos, tri[0].pos, sizeof(tri[0].pos));
+            }
+        }
+    }
+}
+
 void r3d_strip_letterbox(R3DScene& out) {
     if (out.viewports.empty()) return;
     int scene_priority = out.viewports.front().priority;

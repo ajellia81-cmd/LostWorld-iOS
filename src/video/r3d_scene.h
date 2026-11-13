@@ -100,6 +100,11 @@ public:
     // Marks the 3D HUD elements at the sides of the screen (ammo) so the
     // renderer can move them to the edges of a widescreen window
     void set_hud_edges(bool edges) { hud_edges_ = edges; }
+    // A sight to leave out (player 2's while nobody plays player 2): its point
+    // and the one to keep, in fractions of the 4:3 screen (r3d_hide_sight)
+    void set_hidden_sight(bool on, float x, float y, float keep_x, float keep_y) {
+        hide_sight_ = on, hide_x_ = x, hide_y_ = y, keep_x_ = keep_x, keep_y_ = keep_y;
+    }
     // Replacement textures (nullptr = none)
     void set_texture_pack(TexturePack* pack, R3DTextureRam* ram) {
         pack_ = pack;
@@ -176,6 +181,8 @@ private:
     std::unordered_map<uint32_t, uint32_t> instance_count_;
     uint32_t node_key_ = 0, viewport_key_ = 0;
     bool hud_edges_ = true;
+    bool hide_sight_ = false;
+    float hide_x_ = 0, hide_y_ = 0, keep_x_ = 0, keep_y_ = 0;
     TexturePack* pack_ = nullptr;
     R3DTextureRam* texture_ram_ = nullptr;
     std::unordered_map<uint32_t, uint32_t> frame_slots_;   // texture word -> slot, this frame
