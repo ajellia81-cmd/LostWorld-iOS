@@ -15,3 +15,6 @@ int platform_thermal_state();
 // Vulkan device. Asked each frame, after the events, since the moment it
 // changes comes from UIKit while the events are pumped. Always true off iOS.
 bool platform_app_active();
+
+// Pauses all sound while the app is away (true) and resumes it (false)
+void platform_audio_suspend(bool away);

@@ -577,10 +577,12 @@ void VkPresenter::handle_event(const SDL_Event& e) {
         resized_ = true;
         break;
     case SDL_EVENT_WILL_ENTER_BACKGROUND:
+        away_ = true;
         compat_set_focus(false);
         compat_release_keys();
         break;
     case SDL_EVENT_DID_ENTER_FOREGROUND:
+        away_ = false;
         compat_set_focus(true);
         update_size();
         resized_ = true;
@@ -689,7 +691,7 @@ void VkPresenter::run_once(const std::function<void(VkCommandBuffer)>& fn) {
 void VkPresenter::frame(const RecordFn& record) {
     if (!device_) return;
     // In the background iOS takes the GPU away: nothing is drawn
-    if (!GetForegroundWindow() || !platform_app_active()) {
+    if (!GetForegroundWindow() || !platform_app_active() || away_) {
         SDL_Delay(16);
         return;
     }

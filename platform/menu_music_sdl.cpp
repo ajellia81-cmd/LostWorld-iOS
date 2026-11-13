@@ -86,6 +86,20 @@ bool MenuMusic::open() {
     return false;
 }
 
+// Away from the app: the music stops where it is and goes on when back
+static bool g_away = false, g_was_playing = false;
+void menu_music_suspend(bool away) {
+    if (away == g_away) return;
+    g_away = away;
+    if (!g_music) return;
+    if (away) {
+        g_was_playing = !SDL_AudioDevicePaused(SDL_GetAudioStreamDevice(g_music));
+        SDL_PauseAudioStreamDevice(g_music);
+    } else if (g_was_playing) {
+        SDL_ResumeAudioStreamDevice(g_music);
+    }
+}
+
 void MenuMusic::close() {
     if (g_music) SDL_DestroyAudioStream(g_music);
     g_music = nullptr;
@@ -94,7 +108,7 @@ void MenuMusic::close() {
 }
 
 void MenuMusic::update(bool want, int volume, double dt) {
-    if (!open_) return;
+    if (!open_ || g_away) return;
     // A second to come in, half a second to go when the game starts
     level_ = want ? std::min(1.0f, level_ + float(dt) / 1.0f) : std::max(0.0f, level_ - float(dt) / 0.5f);
     if (want && !playing_) {

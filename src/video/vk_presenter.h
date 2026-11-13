@@ -129,6 +129,8 @@ public:
     struct SafeArea {
         int left = 0, top = 0, right = 0, bottom = 0;
     };
+    // iOS: between SDL's will-enter-background and did-enter-foreground
+    bool away() const { return away_; }
     SafeArea safe_area() const { return safe_; }
     SDL_Window* window() const { return window_; }
     void wait_idle() {
@@ -149,6 +151,7 @@ private:
     SDL_Window* window_ = nullptr;
     void* metal_view_ = nullptr;
     SafeArea safe_{};
+    bool away_ = false;
     float density_ = 1;
     int pixel_w_ = 0, pixel_h_ = 0;
 #endif

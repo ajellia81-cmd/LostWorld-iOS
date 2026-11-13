@@ -1525,7 +1525,7 @@ void App::run() {
         // iOS port: away from the app (home screen, app switcher, Control
         // Center, a call): the game holds in the pause menu, and nothing goes
         // to the GPU (iOS would take the Vulkan device away) until it is back
-        if (!platform_app_active()) {
+        if (!platform_app_active() || presenter.away()) {
             on_app_inactive();
             continue;
         }
@@ -2157,6 +2157,7 @@ void App::on_app_inactive() {
             g_menu_open = g_hold = true;
         }
         g_sound.set_muted(true);
+        platform_audio_suspend(true);
         printf("[app] in the background: paused\n");
         fflush(stdout);
     }
@@ -2167,6 +2168,7 @@ void App::on_app_active() {
     app_inactive = false;
     compat_set_focus(true);
     g_sound.set_muted(g_boot_skip);
+    platform_audio_suspend(false);
     presenter.recreate_swapchain();   // the layer may have changed while away
     printf("[app] back in front\n");
 }
