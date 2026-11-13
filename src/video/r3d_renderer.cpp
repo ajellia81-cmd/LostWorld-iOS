@@ -740,7 +740,7 @@ uint32_t R3DRenderer::feature_mask() const {
     if (haze_strength_ > 0) m |= 32u;       // FEAT_HAZE
     if (soft_particles_) m |= 64u;          // FEAT_SOFT
     if (aniso_ >= 1.0f) m |= 128u;          // FEAT_ANISO
-    if (hud_debug_) m |= 1u << 20;         // FEAT_HUD_DEBUG
+    m |= uint32_t(hud_debug_) << 20;       // FEAT_HUD_DEBUG (mode 1-3)
     return m;
 }
 
@@ -2678,7 +2678,7 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
                     if (!(m.flags & R3D_TEXTURED) || !texture_staging_.mapped) continue;
                     // The same texture as the GPU has it (read back 20 s ago): differences
                     // mean texture RAM never reached the GPU right
-                    if (tex_readback_.mapped && readback_tex_ == m.tex) {
+                    if (tex_readback_.mapped && readback_done_ == m.tex) {
                         int bx = int(m.tex & 2047u), by = int((m.tex >> 11) & 2047u);
                         int tw = 32 << ((m.tex >> 22) & 7u), th = std::min(64, 32 << ((m.tex >> 25) & 7u));
                         const uint16_t* gpu = static_cast<const uint16_t*>(tex_readback_.mapped);
@@ -2693,7 +2693,7 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
                             }
                         printf("[hud]       on the GPU: %d of %d texels differ from texture RAM, %d zero\n", diff, tw * th, gzero);
                     }
-                    if (readback_tex_ != m.tex && !readback_asked_) {
+                    if (readback_done_ != m.tex && !readback_asked_) {
                         readback_asked_ = true;
                         readback_tex_ = m.tex;
                     }
@@ -2733,6 +2733,7 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
                 readback_asked_ = false;
                 if (!tex_readback_.buffer) create_buffer(tex_readback_, 2048 * 64 * 2, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
                 if (tex_readback_.mapped) {
+                    readback_done_ = readback_tex_;
                     int by = int((readback_tex_ >> 11) & 2047u);
                     int th = std::min(64, 32 << ((readback_tex_ >> 25) & 7u));
                     transition(f.cmd, texture_ram_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);

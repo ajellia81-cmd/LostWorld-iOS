@@ -38,7 +38,11 @@ const bool FEAT_ANISO = (FEATURES & 128u) != 0u;
 // iOS diagnosis (four fingers): textured surfaces outside the world (the 3D
 // HUD) show red = texture brightness, green = light / 2, blue = 1 when the
 // colour came out NaN, 0.5 when the normal is NaN, 0.25 when the colour is 0
-const bool FEAT_HUD_DEBUG = (FEATURES != 0xFFFFFFFFu) && (FEATURES & (1u << 20)) != 0u;
+const uint HUD_DEBUG = FEATURES != 0xFFFFFFFFu ? (FEATURES >> 20) & 3u : 0u;
+const bool FEAT_HUD_DEBUG = HUD_DEBUG != 0u;
+// mode 2: red, green = uv (fraction), blue = texture row / 2048
+// mode 3: red = texture column / 2048, green = slot (0 = original), blue = the
+// texel at 944,288 (inside the ammo texture) read straight: 1 when not 0
 
 layout(push_constant) uniform Viewport {
     mat4 proj;
@@ -520,8 +524,14 @@ void main() {
     if (FEAT_HUD_DEBUG && (flags & (WORLD | TEXTURED)) == TEXTURED) {
         bool cnan = any(isnan(dbg_pre)) || any(isinf(dbg_pre));
         bool nnan = any(isnan(normal));
-        c.rgb = vec3(clamp(dot(t.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0), clamp(dbg_light * 0.5, 0.0, 1.0),
-                     cnan ? 1.0 : nnan ? 0.5 : (max(dbg_pre.r, max(dbg_pre.g, dbg_pre.b)) <= 0.0 ? 0.25 : 0.0));
+        if (HUD_DEBUG == 1u)
+            c.rgb = vec3(clamp(dot(t.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0), clamp(dbg_light * 0.5, 0.0, 1.0),
+                         cnan ? 1.0 : nnan ? 0.5 : (max(dbg_pre.r, max(dbg_pre.g, dbg_pre.b)) <= 0.0 ? 0.25 : 0.0));
+        else if (HUD_DEBUG == 2u)
+            c.rgb = vec3(fract(uv), float((tex >> 11) & 2047u) / 2048.0);
+        else
+            c.rgb = vec3(float(tex & 2047u) / 2048.0, min(float(replace), 4.0) / 4.0,
+                         texelFetch(texture_ram, ivec2(944, 288), 0).r != 0u ? 1.0 : 0.0);
     }
     out_color = c;
     // Bloom source: fire, explosions and lights are drawn unlit (luminous);

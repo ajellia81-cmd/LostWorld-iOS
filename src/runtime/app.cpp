@@ -2224,7 +2224,7 @@ void App::read_inputs() {
     bool f8 = GetForegroundWindow() == presenter.hwnd() && (GetAsyncKeyState(VK_F8) & 0x8000);
     if (f8 && !f8_was_down) {   // HUD shading diagnosis on or off (iOS: four fingers)
         renderer.toggle_hud_debug();
-        printf("[hud] shading diagnosis %s\n", renderer.hud_debug() ? "on" : "off");
+        printf("[hud] shading diagnosis mode %d\n", renderer.hud_debug());
     }
     f8_was_down = f8;
     if (g_opt.shot_frame && shown != ~0ull && shown + 1 >= g_opt.shot_frame) capture_2d = true;
