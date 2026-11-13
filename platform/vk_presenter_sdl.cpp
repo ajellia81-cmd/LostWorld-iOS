@@ -208,6 +208,9 @@ bool VkPresenter::init(const char* title, int width, int height, bool with_ngx) 
     update_size();
     printf("[video] window %dx%d pixels (x%.2f), safe area insets L%d T%d R%d B%d\n", pixel_w_, pixel_h_, density_,
            safe_.left, safe_.top, safe_.right, safe_.bottom);
+    // No mouse: the pointer starts in the middle of the screen, so a gamepad's
+    // sight (which starts where the pointer is) does not start in a corner
+    compat_set_cursor(pixel_w_ / 2, pixel_h_ / 2);
 
     std::vector<std::string> inst_names = {VK_KHR_SURFACE_EXTENSION_NAME};
     VkInstanceCreateFlags inst_flags = 0;

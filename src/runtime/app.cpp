@@ -2127,6 +2127,16 @@ void App::update_touch() {
         last = sa;
         apply_video_options(&g_opt);
     }
+    // A gamepad just connected: its sight starts in the middle of the screen
+    // (it starts where the pointer is, which the last touch left anywhere)
+    static bool had_pad = false;
+    if (any_pad && !had_pad) {
+        compat_set_cursor(rc.right / 2, rc.bottom / 2);
+        for (int i = 0; i < Gamepads::MAX; i++)
+            if (g_pads.pad(i).connected) g_pads.set_aim(i, 0.5f, 0.5f);
+        set_player_aim(0, 0.5f, 0.5f);
+    }
+    had_pad = any_pad;
     touch.set_state(in_game, back, any_pad, g_inputs.p[0].playing);
     touch.update(now_seconds());
     if (int k = touch.take_key()) {
