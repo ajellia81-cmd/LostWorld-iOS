@@ -61,7 +61,9 @@ void r3d_hide_sight(R3DScene& out, float x, float y, float keep_x, float keep_y)
                 float b[4];
                 if (-tri[0].pos[2] >= 10.0f || !screen_bbox(v, tri, b)) continue;   // sights are near geometry
                 if (b[2] - b[0] > 48.0f || b[3] - b[1] > 48.0f) continue;          // and small
-                const float slop = 3.0f;
+                // (the game's gun mapping puts the dot some pixels off the point,
+                // more so near the corner where player 2's idle gun rests)
+                const float slop = 16.0f;
                 auto holds = [&](float qx, float qy) {
                     return qx >= b[0] - slop && qx <= b[2] + slop && qy >= b[1] - slop && qy <= b[3] + slop;
                 };
