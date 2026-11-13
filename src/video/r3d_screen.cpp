@@ -67,7 +67,12 @@ void r3d_hide_sight(R3DScene& out, float x, float y, float keep_x, float keep_y)
                 auto holds = [&](float qx, float qy) {
                     return qx >= b[0] - slop && qx <= b[2] + slop && qy >= b[1] - slop && qy <= b[3] + slop;
                 };
-                if (!holds(px, py) || holds(kx, ky)) continue;   // (player 1's sight on the same spot stays)
+                if (holds(kx, ky)) continue;   // player 1's sight stays
+                // The stage select's dot (its own texture) wherever it is: the
+                // game brings player 2's in from the middle of the screen, so it
+                // is not at the gun's point at first. Elsewhere: what is there.
+                bool select_dot = (tri[0].flags & R3D_TEXTURED) && tri[0].tex == 0x625A0340u;
+                if (!select_dot && !holds(px, py)) continue;
                 for (int k = 1; k < 3; k++) memcpy(tri[k].pos, tri[0].pos, sizeof(tri[0].pos));
             }
         }
