@@ -285,6 +285,16 @@ private:
     bool jurassic_ = false;   // third_party/fonts/Jurassic_Park.ttf loaded
 
     float u_ = 1;   // pixels per unit of a 1920x1080 layout
+    // iOS port: the screen's safe area at the sides (the camera cut-out), in
+    // pixels; the menu column and the key help stay inside it
+    int safe_l_ = 0, safe_r_ = 0;
+
+public:
+    void set_safe_insets(int left, int right) {
+        if (left != safe_l_ || right != safe_r_) safe_l_ = left, safe_r_ = right, dirty_ = true;
+    }
+
+private:
     std::vector<uint32_t> bg_;   // main menu backdrop for the current size
     std::vector<uint32_t> bg_stone_;   // with a poster: its stone only, without the logo (options)
     // Optional poster (third_party/menu/cover.png, not in the repository):

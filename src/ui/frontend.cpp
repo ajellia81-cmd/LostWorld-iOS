@@ -2084,7 +2084,8 @@ void Frontend::draw_menu(bool over_game, const std::vector<Item>& list) {
     auto U = [&](float v) { return int(v * u_ + 0.5f); };
     int w = w_, h = h_;
     bool right = has_backdrop() && !over_game;   // the column at the right, clear of the picture's subject
-    int left = U(110), col_w = U(720);
+    int side = std::max(safe_l_, safe_r_);   // (the safe area: clear of the camera cut-out)
+    int left = std::max(U(110), side + U(30)), col_w = U(720);
     int tx = right ? w - left : left, talign = right ? 2 : 0;   // where the column's text lines up
     int band0 = right ? w - left - col_w : 0, band1 = right ? w : left + col_w;
     bool boss = screen_ == Screen::Boss || screen_ == Screen::Survival;
@@ -2258,12 +2259,13 @@ void Frontend::draw_menu(bool over_game, const std::vector<Item>& list) {
     int on_rc = selected_recomp();
     const wchar_t* enter_what = on_rc < 0 ? L"SELECT" : more_exe_[on_rc].empty() ? L"OPEN PAGE" : L"PLAY";
     bool page_key = on_rc >= 0 && !more_exe_[on_rc].empty();
-    int py = h - U(64), x = U(80);
+    int edge = std::max(U(80), side + U(20));
+    int py = h - U(64), x = edge;
     if (!over_game) {   // the key help at the bottom right; at the left, the credit to the makers of the game
-        x = w - U(80) + U(44) - prompt_width(L"A", L"ENTER", enter_what) - (back_what ? prompt_width(L"B", L"ESC", back_what) : 0) -
+        x = w - edge + U(44) - prompt_width(L"A", L"ENTER", enter_what) - (back_what ? prompt_width(L"B", L"ESC", back_what) : 0) -
             (page_key ? prompt_width(L"Y", L"G", L"GITHUB PAGE") : 0);
         if (sega_.w > 0) {   // their logo, its own transparency kept
-            int lh = U(52), lw = lh * sega_.w / sega_.h, lx = U(80), ly = h - U(46) - lh;
+            int lh = U(52), lw = lh * sega_.w / sega_.h, lx = edge, ly = h - U(46) - lh;
             for (int j = 0; j < lh; j++)
                 for (int i = 0; i < lw; i++) {
                     uint32_t q = sega_.px[size_t(j * sega_.h / lh) * sega_.w + size_t(i * sega_.w / lw)];
@@ -2271,7 +2273,7 @@ void Frontend::draw_menu(bool over_game, const std::vector<Item>& list) {
                 }
             text(ITEM, U(18), L"\u00A9 1997 SEGA", lx + lw + U(16), ly + lh / 2 - U(10), 0, {FOOT, FOOT});
         } else {
-            text(ITEM, U(22), L"ORIGINAL ARCADE GAME \u00A9 1997 SEGA", U(80), py + U(6), 0, {0xB8B09A, 0xA09884});
+            text(ITEM, U(22), L"ORIGINAL ARCADE GAME \u00A9 1997 SEGA", edge, py + U(6), 0, {0xB8B09A, 0xA09884});
         }
     }
     if (!over_game && screen_ == Screen::Main && credit_.w > 0) {   // the remaster's credit, small at the bottom centre

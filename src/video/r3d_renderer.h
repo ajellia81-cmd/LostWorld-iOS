@@ -118,6 +118,8 @@ public:
     void set_hud_edges(bool edges) { hud_edges_ = edges; }
     // How far in from the 3D view's edges the top HUD band's ends stop, in 2D
     // pixels (iOS port: the screen's safe area, clear of the camera cut-out)
+    // iOS: the HUD at the screen's sides (the top band, and the 3D elements
+    // such as the ammo counter) stays this far from the edges: the safe area
     void set_hud_inset(float px) { hud_inset_ = px > 0 ? px : 0; }
     // iOS diagnosis: the 3D HUD's textured surfaces show what the shader
     // works out for them instead of their colour (r3d.frag FEAT_HUD_DEBUG)

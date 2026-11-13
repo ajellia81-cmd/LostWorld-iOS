@@ -2121,7 +2121,7 @@ void R3DRenderer::record_world(const Frame& f) {
                     pc.params[3] = before;
                     pc.quality[0] = pass == 0 ? float(samples_) + alpha_seed : -float(samples_);
                     pc.quality[1] = aniso_;
-                    pc.quality[2] = full ? 2.0f * lay.game_x0 / lay.view_w : 0.0f;
+                    pc.quality[2] = full ? 2.0f * std::max(0.0f, lay.game_x0 - hud_inset_) / lay.view_w : 0.0f;
                     pc.quality[3] = interp_;
                     // Translucent surfaces that are not effects (a whole model made
                     // see-through, like the Carnotaurus' camouflage): only the
@@ -2253,7 +2253,7 @@ void R3DRenderer::record_world_prepass(const Frame& f, bool ao_on) {
         pc.params[3] = f.before;
         pc.quality[0] = -2000.0f;   // r3d.frag: depth only, the opaque pass's rules
         pc.quality[1] = 0.0f;       // the alpha from one bilinear tap (the depth for occlusion only)
-        pc.quality[2] = full ? 2.0f * lay.game_x0 / lay.view_w : 0.0f;
+        pc.quality[2] = full ? 2.0f * std::max(0.0f, lay.game_x0 - hud_inset_) / lay.view_w : 0.0f;
         pc.quality[3] = interp_;
         vkCmdPushConstants(cmd, r3d_layout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
         vkCmdDraw(cmd, v.opaque_count, 1, v.opaque_first, 0);

@@ -1680,6 +1680,7 @@ void App::apply_video_options(const Options* was) {
         ScreenLayout lay = compute_layout(float(rc.right), float(rc.bottom), g_opt.max_aspect);
         float inset = float(std::max(sa.left, sa.right)) - lay.ox;
         renderer.set_hud_inset(inset > 0 && lay.scale > 0 ? inset / lay.scale : 0.0f);
+        frontend.set_safe_insets(sa.left, sa.right);
     }
 #endif
     const Options& o = g_opt;
