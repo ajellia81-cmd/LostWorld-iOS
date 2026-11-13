@@ -42,7 +42,12 @@ public:
     // The overlay picture (w x h BGRA, premultiplied) when it changed since the
     // last call; false when it did not. An empty picture hides it
     bool draw(std::vector<uint32_t>& px, int& w, int& h);
+    // The frame rate in the top right corner (four fingers turn it on and off):
+    // the text to show, set once a second while it is on
+    bool fps_on() const { return fps_on_; }
+    void set_fps(const std::string& text) { fps_ = fps_on_ ? text : std::string(); }
     bool any_shown() const {
+        if (!fps_.empty()) return true;
         for (int b = 0; b < BUTTON_COUNT; b++)
             if (shown(Button(b))) return true;
         return false;
@@ -78,7 +83,9 @@ private:
     // Every finger on the screen; three at once take a debug snapshot (F9: the
     // scene, its polygons and the picture into out/snap)
     std::vector<uint64_t> down_;
-    double snap_until_ = 0, snap_from_ = 0, debug_until_ = 0;
+    double snap_until_ = 0, snap_from_ = 0;
+    bool fps_on_ = false;
+    std::string fps_;
     double coin_from_ = -1, coin_until_ = -1, start_from_ = -1, start_until_ = -1;
     bool start_pending_ = false;
     int pending_key_ = 0;

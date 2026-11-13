@@ -116,7 +116,11 @@ bool TouchControls::on_event(const SDL_Event& e, float x, float y) {
         if (std::find(down_.begin(), down_.end(), finger) == down_.end()) down_.push_back(finger);
         // (a little later, so that a fourth finger can still make it the other gesture)
         if (down_.size() == 3) snap_from_ = now_ + 0.15, snap_until_ = now_ + 0.4;
-        if (down_.size() == 4) snap_until_ = 0, debug_until_ = now_ + 0.25;   // (not a snapshot)
+        if (down_.size() == 4) {   // (not a snapshot): the frame rate on or off
+            snap_until_ = 0;
+            fps_on_ = !fps_on_;
+            if (!fps_on_) fps_.clear();
+        }
     } else if (e.type != SDL_EVENT_FINGER_MOTION) {
         down_.erase(std::remove(down_.begin(), down_.end(), finger), down_.end());
     }
@@ -176,7 +180,6 @@ void TouchControls::update(double now) {
     compat_set_touch_key('5', now >= coin_from_ && now < coin_until_);
     compat_set_touch_key('1', now >= start_from_ && now < start_until_);
     compat_set_touch_key(VK_F9, now < snap_until_ && now > snap_from_);
-    compat_set_touch_key(VK_F8, now < debug_until_);
 }
 
 int TouchControls::take_key() {
@@ -193,6 +196,7 @@ bool TouchControls::draw(std::vector<uint32_t>& px, int& w, int& h) {
         if (b == RELOAD) down |= now_ < reload_until_;
         key += shown(Button(b)) ? (down ? 'D' : 'U') : '-';
     }
+    key += "|" + fps_;
     if (key == drawn_key_) return false;
     drawn_key_ = key;
     w = w_, h = h_;
@@ -216,6 +220,28 @@ bool TouchControls::draw(std::vector<uint32_t>& px, int& w, int& h) {
         int size = int(std::lround((b == BACK ? 13.0f : 17.0f) * density_));
         const GdiText::Mask& m = text_->mask(GdiText::SAIRA, size, label);
         int ox = int(std::lround(cx)) - m.text_w / 2 - m.pad, oy = int(std::lround(cy)) - m.text_h / 2 - m.pad;
+        for (int y = 0; y < m.h; y++) {
+            int yy = oy + y;
+            if (yy < 0 || yy >= h) continue;
+            for (int x = 0; x < m.w; x++) {
+                int xx = ox + x;
+                if (xx < 0 || xx >= w) continue;
+                uint32_t a = m.a[size_t(y) * size_t(m.w) + size_t(x)];
+                blend(px[size_t(yy) * size_t(w) + size_t(xx)], a, a, a, a);
+            }
+        }
+    }
+    // The frame rate: white on a dark box in the top right corner, inside the safe area
+    if (!fps_.empty() && text_->ready()) {
+        std::wstring label(fps_.begin(), fps_.end());
+        int size = int(std::lround(12.0f * density_));
+        const GdiText::Mask& m = text_->mask(GdiText::SAIRA, size, label.c_str());
+        float margin = 6.0f * density_, padx = 6.0f * density_, pady = 3.0f * density_;
+        float bw = float(m.text_w) + 2 * padx, bh = float(m.text_h) + 2 * pady;
+        float bx = float(w - safe_[2]) - margin - bw, by = float(safe_[1]) + margin;
+        for (int y = std::max(0, int(by)); y < std::min(h, int(by + bh)); y++)
+            for (int x = std::max(0, int(bx)); x < std::min(w, int(bx + bw)); x++) blend(px[size_t(y) * size_t(w) + size_t(x)], 0, 0, 0, 150);
+        int ox = int(bx + padx) - m.pad, oy = int(by + pady) - m.pad;
         for (int y = 0; y < m.h; y++) {
             int yy = oy + y;
             if (yy < 0 || yy >= h) continue;

@@ -2611,6 +2611,16 @@ void App::update_title() {
                  hz, (unsigned long long)shown,
                  scene->polygons, game_ms, prep_ms, scene_ms, t.record * per, (t.gpu_wait + t.present) * per);
         SetWindowTextA(presenter.hwnd(), title);
+#ifndef _WIN32
+        {   // The frame rate on screen (four fingers), with the GPU's time per image
+            int gpu_frames = 0;
+            double gpu_ms = renderer.take_gpu_ms(gpu_frames);
+            char fps[64];
+            if (gpu_frames > 0) snprintf(fps, sizeof fps, "%llu fps  GPU %.1f ms", hz, gpu_ms / gpu_frames);
+            else snprintf(fps, sizeof fps, "%llu fps", hz);
+            touch.set_fps(fps);
+        }
+#endif
         static double last_log = now;
         if (now - last_log >= 5.0) {   // the same, in the log, every 5 s
             last_log = now;
