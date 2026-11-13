@@ -177,7 +177,7 @@ static void arcade_defaults(FrontendSettings& s) {
     s.vsync = true;
     // The arcade's picture
     s.aa = 2;               // no anti-aliasing
-    s.aniso = 0;            // no mipmaps: the original texture look
+    s.aniso = 1;            // the game's mipmaps blended (trilinear), as the Model 3 does
     s.smooth_2d = false;    // 2D layers as pixels (no xBR)
     s.hd_text = false;      // the original pixel-art letters
     s.saturation = 100;     // the original colours
@@ -2738,6 +2738,16 @@ int main(int argc, char** argv) {
             ini.save("save/settings.ini");
             if (FILE* f = fopen("save/ios_defaults_arcade", "w")) fclose(f);
             printf("[video] iPhone defaults: 100%% resolution, full screen, 120 Hz; the arcade's own picture\n");
+        }
+        // The arcade's mipmaps: earlier iOS defaults had none (anisotropic 0,
+        // which shimmers far away unlike the Model 3). Once, if still so.
+        if (!file_exists("save/ios_mipmaps_arcade")) {
+            if (ini.aniso == 0) {
+                ini.aniso = 1;
+                ini.save("save/settings.ini");
+                printf("[video] the arcade's mipmaps (trilinear) instead of none\n");
+            }
+            if (FILE* f = fopen("save/ios_mipmaps_arcade", "w")) fclose(f);
         }
         // Choices the phone does not offer (DLAA, surround), set on a PC or before
         if (ini.aa == 1) ini.aa = 2;
