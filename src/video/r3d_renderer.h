@@ -287,7 +287,7 @@ public:
 private:
     double bench_ms_ = 0, overlay_ms_ = 0;
     int bench_frames_ = 0, overlay_frames_ = 0;
-    int early_z_mode_ = 2;
+    int early_z_mode_ = 1;
     void bind_scene_image(VkImageView view, VkImageView alpha);
     void update_atmosphere(const ScreenLayout& lay, uint32_t target_w, uint32_t target_h);
     bool back_layer_extended() const;
