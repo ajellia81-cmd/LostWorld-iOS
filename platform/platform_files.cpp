@@ -49,6 +49,20 @@ void platform_prepare_files() {
     // The GPU time of each pass, every 300 images, in the log (the renderer's
     // LW_GPUTIME): with the [timing] line it shows what grows as the game slows
     setenv("LW_GPUTIME", "1", 0);
+    // Settings for tests, one KEY=VALUE per line in env.txt (as environment
+    // variables on a PC, e.g. LW_TILE=0)
+    if (FILE* env = fopen("env.txt", "r")) {
+        char line[512];
+        while (fgets(line, sizeof line, env)) {
+            std::string l = line;
+            while (!l.empty() && (l.back() == '\n' || l.back() == '\r' || l.back() == ' ')) l.pop_back();
+            size_t eq = l.find('=');
+            if (l.empty() || l[0] == '#' || eq == std::string::npos || eq == 0) continue;
+            setenv(l.substr(0, eq).c_str(), l.substr(eq + 1).c_str(), 1);
+            printf("[files] env.txt: %s\n", l.c_str());
+        }
+        fclose(env);
+    }
     // The bundle's folders, linked again at every launch: the bundle moves when
     // the app is reinstalled or updated. A real folder of the player's (their
     // own textures/) is left alone.

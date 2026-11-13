@@ -838,7 +838,7 @@ struct App {
     uint64_t back_rows_frame = ~0ull, shift_from = ~0ull, shift_to = ~0ull, built_from = ~0ull;
     TextHD text;   // menus, captions and score drawn from vector fonts
     std::atomic<bool> capture_2d{false};   // F12 / --shot: the next 2D composition is saved
-    bool f12_was_down = false, f9_was_down = false;
+    bool f12_was_down = false, f9_was_down = false, f8_was_down = false;
     R3DScene own_scene;   // built on this thread (no interpolation)
     const R3DScene* scene = &own_scene;
     Layers2D own_layers;   // composed on this thread (no 3D, or no interpolation)
@@ -2221,6 +2221,12 @@ void App::read_inputs() {
         printf("Snapshot saved to %s.bin\n", base.c_str());
     }
     f9_was_down = f9;
+    bool f8 = GetForegroundWindow() == presenter.hwnd() && (GetAsyncKeyState(VK_F8) & 0x8000);
+    if (f8 && !f8_was_down) {   // HUD shading diagnosis on or off (iOS: four fingers)
+        renderer.toggle_hud_debug();
+        printf("[hud] shading diagnosis %s\n", renderer.hud_debug() ? "on" : "off");
+    }
+    f8_was_down = f8;
     if (g_opt.shot_frame && shown != ~0ull && shown + 1 >= g_opt.shot_frame) capture_2d = true;
     for (int p = 0; p < 2; p++) {   // player 2's only while that gun is in use
         PlayerAim aim = player_aim(p);

@@ -740,6 +740,7 @@ uint32_t R3DRenderer::feature_mask() const {
     if (haze_strength_ > 0) m |= 32u;       // FEAT_HAZE
     if (soft_particles_) m |= 64u;          // FEAT_SOFT
     if (aniso_ >= 1.0f) m |= 128u;          // FEAT_ANISO
+    if (hud_debug_) m |= 1u << 20;         // FEAT_HUD_DEBUG
     return m;
 }
 

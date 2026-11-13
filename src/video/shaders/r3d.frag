@@ -35,6 +35,10 @@ const bool FEAT_LIGHTNING = (FEATURES & 16u) != 0u;
 const bool FEAT_HAZE = (FEATURES & 32u) != 0u;
 const bool FEAT_SOFT = (FEATURES & 64u) != 0u;
 const bool FEAT_ANISO = (FEATURES & 128u) != 0u;
+// iOS diagnosis (four fingers): textured surfaces outside the world (the 3D
+// HUD) show red = texture brightness, green = light / 2, blue = 1 when the
+// colour came out NaN, 0.5 when the normal is NaN, 0.25 when the colour is 0
+const bool FEAT_HUD_DEBUG = (FEATURES != 0xFFFFFFFFu) && (FEATURES & (1u << 20)) != 0u;
 
 layout(push_constant) uniform Viewport {
     mat4 proj;
@@ -410,6 +414,7 @@ void main() {
         vec3 lit = air * mist_light(view_pos) * 1.5 + 0.05 + atm.mist.w * vec3(0.9, 0.95, 1.0);
         c = vec4(lit, c.a * across * along);
     }
+    float dbg_light = -1.0;
     if ((flags & (LUMINOUS | RAIN)) == 0u) {
         vec3 n = normal;
         if (FEAT_RELIEF && atm.relief.x > 0.0 && (flags & (WORLD | TEXTURED)) == (WORLD | TEXTURED) && (flags & FIXED_SHADE) == 0u)
@@ -454,6 +459,7 @@ void main() {
                 light += atm.spot_color.rgb * lobe;
             }
         }
+        dbg_light = light.g;
         c.rgb *= light;
         c.rgb += glint * atm.spot_color.rgb * TORCH_TINT;
         if ((flags & SPECULAR) != 0u) {
@@ -470,6 +476,7 @@ void main() {
     // The original clips the light at white; with HDR lighting the highlights
     // (sunlit surfaces, fire, specular) keep going and the composition's tone
     // curve rolls them off
+    vec3 dbg_pre = c.rgb;
     c.rgb = min(c.rgb, vec3(atm.soft.z > 0.5 ? 8.0 : 1.0));
 
     float fog = params.y * clamp(vp.params.z + (-view_pos.z) * vp.params.y, 0.0, 1.0);
@@ -509,6 +516,12 @@ void main() {
     if (FEAT_SOFT && vp.quality.x < 0.0 && atm.soft.x > 0.0 && (flags & WORLD) != 0u) {
         float d = texelFetch(scene_depth, ivec2(gl_FragCoord.xy), 0).r;
         if (d > 0.0) c.a *= clamp((view_pos.z + 1e-3 / d) / atm.soft.y, 0.0, 1.0);
+    }
+    if (FEAT_HUD_DEBUG && (flags & (WORLD | TEXTURED)) == TEXTURED) {
+        bool cnan = any(isnan(dbg_pre)) || any(isinf(dbg_pre));
+        bool nnan = any(isnan(normal));
+        c.rgb = vec3(clamp(dot(t.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0), clamp(dbg_light * 0.5, 0.0, 1.0),
+                     cnan ? 1.0 : nnan ? 0.5 : (max(dbg_pre.r, max(dbg_pre.g, dbg_pre.b)) <= 0.0 ? 0.25 : 0.0));
     }
     out_color = c;
     // Bloom source: fire, explosions and lights are drawn unlit (luminous);

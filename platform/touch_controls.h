@@ -78,7 +78,7 @@ private:
     // Every finger on the screen; three at once take a debug snapshot (F9: the
     // scene, its polygons and the picture into out/snap)
     std::vector<uint64_t> down_;
-    double snap_until_ = 0;
+    double snap_until_ = 0, snap_from_ = 0, debug_until_ = 0;
     double coin_from_ = -1, coin_until_ = -1, start_from_ = -1, start_until_ = -1;
     bool start_pending_ = false;
     int pending_key_ = 0;
