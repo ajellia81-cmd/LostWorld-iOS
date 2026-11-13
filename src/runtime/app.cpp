@@ -2739,15 +2739,16 @@ int main(int argc, char** argv) {
             if (FILE* f = fopen("save/ios_defaults_arcade", "w")) fclose(f);
             printf("[video] iPhone defaults: 100%% resolution, full screen, 120 Hz; the arcade's own picture\n");
         }
-        // The arcade's mipmaps: earlier iOS defaults had none (anisotropic 0,
-        // which shimmers far away unlike the Model 3). Once, if still so.
-        if (!file_exists("save/ios_mipmaps_arcade")) {
-            if (ini.aniso == 0) {
+        // The arcade's mipmaps (ANISOTROPIC FILTER: ARCADE) as the iOS default,
+        // once over whatever was saved before it existed (OFF from the earlier
+        // defaults, 2X from a quality preset): set by hand afterwards, it stays
+        if (!file_exists("save/ios_mipmaps_arcade_v2")) {
+            if (ini.aniso != 1) {
+                printf("[video] anisotropic filter %d -> ARCADE (the game's mipmaps, trilinear)\n", ini.aniso);
                 ini.aniso = 1;
                 ini.save("save/settings.ini");
-                printf("[video] the arcade's mipmaps (trilinear) instead of none\n");
             }
-            if (FILE* f = fopen("save/ios_mipmaps_arcade", "w")) fclose(f);
+            if (FILE* f = fopen("save/ios_mipmaps_arcade_v2", "w")) fclose(f);
         }
         // Choices the phone does not offer (DLAA, surround), set on a PC or before
         if (ini.aa == 1) ini.aa = 2;
