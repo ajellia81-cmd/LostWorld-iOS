@@ -220,6 +220,7 @@ add_executable(LostWorld WIN32 MACOSX_BUNDLE
     src/runtime/runtime.cpp
     src/runtime/app.cpp
     src/runtime/eeprom.cpp
+    src/runtime/disk_writer.cpp
     src/runtime/inputs.cpp
     src/runtime/gamepad.cpp
     src/runtime/scsi53c810.cpp
