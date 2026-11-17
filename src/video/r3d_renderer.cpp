@@ -1246,12 +1246,15 @@ void R3DRenderer::add_sky_pictures(const std::vector<RgbaImage>& images) {
 }
 
 // The background layers continue beside the 4:3 area only while the 3D
-// scene is widened too; a small 3D window (camera effects) keeps black sides
+// scene is widened too; a small 3D window (camera effects) keeps black sides.
+// The stage start's growing window is widened (place()): the sky in it goes on
+// beside the 4:3 area as well (around the window the 3D image is black)
 bool R3DRenderer::back_layer_extended() const {
     if (!scene_ || scene_->viewports.empty()) return true;
     int scene_priority = scene_->viewports.front().priority;
     for (const R3DViewport& v : scene_->viewports)
-        if (v.priority == scene_priority && v.x <= 0.5f && v.w >= SCREEN_W - 0.5f) return true;
+        if (v.priority == scene_priority && v.x <= 0.5f && (v.w >= SCREEN_W - 0.5f || (v.y <= 0.5f && v.w > 0.0f)))
+            return true;
     return false;
 }
 
