@@ -22,6 +22,8 @@ public:
     size_t queued() const { return stream_.queued(); }
     // Any thread; the device is reopened if the channel count changes
     void set_speakers(AudioStream::Speakers s) { speakers_ = int(s); }
+    // (SDL output, iOS port) the next frames for the device, mixed for its speakers
+    void pull(float* out, size_t frames);
 
 private:
     void run();

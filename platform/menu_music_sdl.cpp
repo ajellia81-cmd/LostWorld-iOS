@@ -62,18 +62,19 @@ bool load_wav(const char* path) {
 }
 }  // namespace
 
+// Topped up as it plays: a loop
+static void music_loop(void*, SDL_AudioStream* s, int additional, int) {
+    for (int guard = 0; guard < 4 && !g_pcm.empty() && SDL_GetAudioStreamQueued(s) < additional; guard++)
+        SDL_PutAudioStreamData(s, g_pcm.data(), int(g_pcm.size()));
+}
+
 bool MenuMusic::open() {
     if (!(SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) && !SDL_InitSubSystem(SDL_INIT_AUDIO)) return false;
     for (const char* path : {"third_party/menu/music.mp3", "third_party/menu/music.wav", "res/menu/music.mp3"}) {
         std::string p = path;
         bool ok = p.size() > 4 && p.compare(p.size() - 4, 4, ".wav") == 0 ? load_wav(path) : load_mp3(path);
         if (!ok) continue;
-        // Topped up as it plays: a loop
-        auto loop = [](void*, SDL_AudioStream* s, int additional, int) {
-            for (int guard = 0; guard < 4 && !g_pcm.empty() && SDL_GetAudioStreamQueued(s) < additional; guard++)
-                SDL_PutAudioStreamData(s, g_pcm.data(), int(g_pcm.size()));
-        };
-        g_music = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &g_spec, loop, nullptr);
+        g_music = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &g_spec, music_loop, nullptr);
         if (!g_music) {
             fprintf(stderr, "[menu] could not play the music: %s\n", SDL_GetError());
             return false;
@@ -95,8 +96,15 @@ void menu_music_suspend(bool away) {
     if (away) {
         g_was_playing = !SDL_AudioDevicePaused(SDL_GetAudioStreamDevice(g_music));
         SDL_PauseAudioStreamDevice(g_music);
-    } else if (g_was_playing) {
-        SDL_ResumeAudioStreamDevice(g_music);
+    } else {
+        // Back: a new output (as for the game's sound, audio_out_sdl.cpp), at
+        // the same volume; the loop starts over
+        float gain = SDL_GetAudioStreamGain(g_music);
+        SDL_DestroyAudioStream(g_music);
+        g_music = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &g_spec, music_loop, nullptr);
+        if (!g_music) return;
+        SDL_SetAudioStreamGain(g_music, gain);
+        if (g_was_playing) SDL_ResumeAudioStreamDevice(g_music);
     }
 }
 

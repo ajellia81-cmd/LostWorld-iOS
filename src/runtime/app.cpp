@@ -145,6 +145,10 @@ struct HiddenSight {
     std::atomic<float> x{0}, y{0}, keep_x{0}, keep_y{0};
 };
 static HiddenSight g_hidden_sight;
+// The 3D HUD moves to the screen's sides (the ammo counter) only while someone
+// plays: on the screens between games (BEST CREW, its rank marker in the right
+// band) the side elements stay where the game put them
+static std::atomic<bool> g_anchor_hud{false};
 // While player 2 has a gun of its own (a second mouse, raw_mice.h): the
 // gamepad aiming for player 2 instead, -1: the gun. A pad of player 2's takes
 // the sight only when it aims and the gun has been still for a moment, so a
@@ -1260,6 +1264,7 @@ void App::prepare_frames() {
             bool layers = p->layers.frame != ~0ull;
             if (layers) layers_worker.run([&] { compose_2d(p->layers); });
             double from = now_seconds();
+            builder.set_hud_edges(!g_opt.hud_centre && g_anchor_hud);
             builder.set_hidden_sight(g_hidden_sight.on, g_hidden_sight.x, g_hidden_sight.y, g_hidden_sight.keep_x,
                                      g_hidden_sight.keep_y);
             builder.build(*state, p->scene);
@@ -2199,6 +2204,7 @@ void App::read_inputs() {
     update_touch();
     update_bench();   // once, in the first minute of play (save/bench_v4)
 #endif
+    g_anchor_hud = g_inputs.p[0].playing || g_inputs.p[1].playing;
 #ifndef _WIN32
     {   // Player 2's sight, while nobody plays player 2 (g_hidden_sight)
         bool hide = !g_inputs.p[1].playing;

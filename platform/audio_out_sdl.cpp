@@ -12,7 +12,24 @@
 namespace {
 SDL_AudioStream* g_stream = nullptr;
 std::vector<float> g_buf;
+SDL_AudioSpec g_out_spec{};
+AudioOut* g_out = nullptr;
+
+void feed(void* user, SDL_AudioStream* s, int additional, int) {
+    auto* self = static_cast<AudioOut*>(user);
+    int n = additional / int(2 * sizeof(float));
+    if (n <= 0) return;
+    if (g_buf.size() < size_t(n) * 2) g_buf.resize(size_t(n) * 2);
+    self->pull(g_buf.data(), size_t(n));
+    SDL_PutAudioStreamData(s, g_buf.data(), n * int(2 * sizeof(float)));
+}
 }  // namespace
+
+void AudioOut::pull(float* out, size_t frames) {
+    auto mode = AudioStream::Speakers(speakers_.load());
+    if (mode == AudioStream::Speakers::Surround) mode = AudioStream::Speakers::Stereo;
+    stream_.pull(out, frames, mode);
+}
 
 bool AudioOut::start() {
     if (!(SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) && !SDL_InitSubSystem(SDL_INIT_AUDIO)) {
@@ -24,18 +41,9 @@ bool AudioOut::start() {
     int rate = 48000;
     if (SDL_GetAudioDeviceFormat(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &dev, &frames) && dev.freq > 0) rate = dev.freq;
     stream_.set_output_rate(rate);
-    SDL_AudioSpec spec{SDL_AUDIO_F32, 2, rate};
-    auto feed = [](void* user, SDL_AudioStream* s, int additional, int) {
-        auto* self = static_cast<AudioOut*>(user);
-        int n = additional / int(2 * sizeof(float));
-        if (n <= 0) return;
-        if (g_buf.size() < size_t(n) * 2) g_buf.resize(size_t(n) * 2);
-        auto mode = AudioStream::Speakers(self->speakers_.load());
-        if (mode == AudioStream::Speakers::Surround) mode = AudioStream::Speakers::Stereo;
-        self->stream_.pull(g_buf.data(), size_t(n), mode);
-        SDL_PutAudioStreamData(s, g_buf.data(), n * int(2 * sizeof(float)));
-    };
-    g_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, feed, this);
+    g_out_spec = {SDL_AUDIO_F32, 2, rate};
+    g_out = this;
+    g_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &g_out_spec, feed, this);
     if (!g_stream) {
         fprintf(stderr, "[audio] no output: %s\n", SDL_GetError());
         return false;
@@ -56,7 +64,16 @@ void AudioOut::stop() {
 // background, as LiveContainer, would otherwise keep playing)
 void menu_music_suspend(bool away);
 void platform_audio_suspend(bool away) {
-    if (g_stream) away ? SDL_PauseAudioStreamDevice(g_stream) : SDL_ResumeAudioStreamDevice(g_stream);
+    if (g_stream && away) SDL_PauseAudioStreamDevice(g_stream);
+    if (g_stream && !away) {
+        // Back: the output opened again. iOS sometimes hands the old one back
+        // silent (its audio session not active again yet), until the next
+        // round trip; a new one starts on the session as it is now
+        SDL_DestroyAudioStream(g_stream);
+        g_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &g_out_spec, feed, g_out);
+        if (g_stream) SDL_ResumeAudioStreamDevice(g_stream);
+        else fprintf(stderr, "[audio] no output after coming back: %s\n", SDL_GetError());
+    }
     menu_music_suspend(away);
 }
 
