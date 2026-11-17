@@ -1258,6 +1258,18 @@ bool R3DRenderer::back_layer_extended() const {
     return false;
 }
 
+// The same as a mode for compose's hud.w: 0 the 4:3 area only, 1 continued
+// beside it, 2 spread over the width (the stage start's growing window: the
+// game sizes its sky to the window in 4:3 terms, the window is widened)
+float R3DRenderer::back_layer_mode() const {
+    if (!back_layer_extended()) return 0.0f;
+    if (!scene_ || scene_->viewports.empty()) return 1.0f;
+    int scene_priority = scene_->viewports.front().priority;
+    for (const R3DViewport& v : scene_->viewports)
+        if (v.priority == scene_priority && v.x <= 0.5f && v.w >= SCREEN_W - 0.5f) return 1.0f;
+    return 2.0f;
+}
+
 // Scroll fog (spec 7.4): from the lowest priority that has any, the viewport
 // with the strongest scroll fog. It is drawn only when a viewport with the
 // same fog colour actually fogs something.
@@ -2432,7 +2444,7 @@ R3DRenderer::ComposePush R3DRenderer::compose_push(const Frame& f) const {
                    .layer2d = {lay.game_x0 / lay.view_w, SCREEN_W / lay.view_w},
                    .filter2d = {smooth_2d_ ? 1.0f : 0.0f, lay.scale},
                    .hud = {hud_edges_ && hud_band_ ? std::max(0.0f, lay.game_x0 - hud_inset_) : 0.0f, hdr_ ? 1.0f : 0.0f, overlay_brightness_,
-                           extend_back ? 1.0f : 0.0f},
+                           extend_back ? back_layer_mode() : 0.0f},
                    .sky = {seconds, 0, sun_ && weather_.overcast * outdoor_ < 0.5f ? 1.0f : 0.0f, 0},
                    .effects = {bloom_strength_, saturation_, gamma_, 0},
                    .motion = {back_shift_, (crosshair_picture_[0] ? 1.0f : 0.0f) + (crosshair_picture_[1] ? 2.0f : 0.0f), 0, 0},

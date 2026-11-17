@@ -33,6 +33,7 @@ layout(push_constant) uniform Compose {
     vec2 layer2d;     // x offset and width of the 4:3 2D area inside the 3D view
     vec2 filter2d;    // x: 1 = xBR, 0 = plain pixels; y: window pixels per 2D pixel
     vec4 hud;         // x: shift of the top HUD band to the screen edges (2D pixels); y: 1 = HDR lighting;
+                      // (w 2: the back layers spread over the width, the stage start's window)
                       // z: brightness offset of the foreground layers (fades), applied to the overlays;
                       // w: 1 = background layers continue beside the 4:3 area
     vec4 sky;         // x: seconds since launch (unused here: the clouds' drift is in their panorama);
@@ -397,7 +398,11 @@ void main() {
         vec2 q = vec2((p.x - pc.layer2d.x) / pc.layer2d.y, p.y);
         // The back layers (sky) were drawn wider than the screen; beyond that
         // and for the front layers the outermost column is repeated
-        vec2 qb = vec2((q.x * float(SIZE_2D.x) + float(BACK_MARGIN)) / float(SIZE_BACK.x), q.y);
+        // (hud.w 2: the stage start's growing window, widened over the screen:
+        // the game sizes its sky to that window in 4:3 terms, so the 4:3
+        // back layers are spread over the whole width with it)
+        float qbx = pc.hud.w > 1.5 ? p.x : q.x;
+        vec2 qb = vec2((qbx * float(SIZE_2D.x) + float(BACK_MARGIN)) / float(SIZE_BACK.x), q.y);
         // The back layers (sky) at their sub-pixel position, going on between
         // game frames like the 3D image in front of them (sky_motion.h): per
         // row and axis the offset from the game's scroll and the velocity
