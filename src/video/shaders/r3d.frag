@@ -356,6 +356,14 @@ void main() {
     // shadows; canopies and roofs high above would put whole scenes in the dark
     if (vp.fog_color.w < 0.0 && dot(view_pos, vp.sun.xyz) + vp.fog_color.x > vp.fog_color.y) discard;
 
+    // Depth of the nearest see-through surface (spec 7.2); effects stay out of
+    // it. Decided by the flags alone, before any texture is read: the stage 2
+    // boss's water and the weapons' effects are layer upon layer of them
+    if (vp.quality.x <= -1000.0 && vp.quality.x > -2000.0) {
+        if ((flags & (TEX_ALPHA | ALPHA_TEST | LUMINOUS)) != 0u) discard;
+        return;
+    }
+
     // Depth-only passes: the sun's shadow map (fog_color.w < 0), the world's
     // depth before the 3D pass (quality -2000) and the solid surfaces laid
     // down first inside it (-3000, record_world). No colour comes out of them,
@@ -397,11 +405,6 @@ void main() {
     // them, nothing else computed
     if (vp.quality.x <= -2000.0) {
         if ((flags & TEX_ALPHA) != 0u && c.a < 1.0) discard;
-        return;
-    }
-    // Depth of the nearest see-through surface (spec 7.2); effects stay out of it
-    if (vp.quality.x <= -1000.0) {
-        if ((flags & (TEX_ALPHA | ALPHA_TEST | LUMINOUS)) != 0u) discard;
         return;
     }
     // Texture alpha (spec 7.2): solid texels belong to the opaque pass, the
