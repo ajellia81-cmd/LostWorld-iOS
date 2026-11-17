@@ -99,6 +99,25 @@ ScreenLayout compute_layout(float win_w, float win_h, float max_aspect) {
     return l;
 }
 
+
+// Where a viewport goes in the 3D image (in units of the 496-wide game screen
+// stretched over view_w) and whether its projection is widened. Full-screen
+// viewports fill the wide screen with a wider horizontal field of view; small
+// ones (camera effects) keep their 4:3 place with black sides. The stage start
+// grows the world's window from the screen's left edge: it is widened the
+// same way, so it grows over the wide screen and ends as the full view
+// instead of jumping from the 4:3 frame to the full width.
+struct Placed {
+    float x, w;
+    bool widened;
+};
+static Placed place(const R3DViewport& v, const ScreenLayout& lay) {
+    const float widen = lay.view_w / SCREEN_W;
+    if (v.x <= 0.5f && v.w >= SCREEN_W - 0.5f) return {0.0f, lay.view_w, true};
+    if (v.world && v.x <= 0.5f && v.w > 0.0f) return {0.0f, v.w * widen, true};
+    return {v.x + lay.game_x0, v.w, false};
+}
+
 bool R3DRenderer::create_buffer(Buffer& b, size_t size, VkBufferUsageFlags usage, bool device_local) {
     VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bi.size = size;
@@ -1488,8 +1507,8 @@ void R3DRenderer::update_atmosphere(const ScreenLayout& lay, uint32_t target_w, 
         for (int i = 0; i < 3; i++) u.scroll_fog[i] = sf->fog_color[i] * sf->fog_ambient;
         u.scroll_fog[3] = sf->scroll_fog;
         // Its rectangle in the 3D image, widened like the viewport when it fills the screen
-        bool full = sf->x <= 0.5f && sf->w >= SCREEN_W - 0.5f;
-        float x0 = full ? 0.0f : sf->x + lay.game_x0, w = full ? lay.view_w : sf->w;
+        Placed pl = place(*sf, lay);
+        float x0 = pl.x, w = pl.w;
         u.scroll_rect[0] = x0 / lay.view_w;
         u.scroll_rect[1] = sf->y / SCREEN_H;
         u.scroll_rect[2] = (x0 + w) / lay.view_w;
@@ -1526,8 +1545,7 @@ void R3DRenderer::update_atmosphere(const ScreenLayout& lay, uint32_t target_w, 
             u.sun[3] = 1;
         }
         // Projection as used for the world viewport (widened when it fills the screen)
-        bool full = w->x <= 0.5f && w->w >= SCREEN_W - 0.5f;
-        float widen = full ? lay.view_w / SCREEN_W : 1.0f;
+        float widen = place(*w, lay).widened ? lay.view_w / SCREEN_W : 1.0f;
         u.view[0] = w->proj[0] / widen;
         u.view[1] = w->proj[5];
         u.view[2] = w->proj[8] / widen;
@@ -2002,6 +2020,29 @@ void R3DRenderer::record_world(const Frame& f) {
     ri.pDepthAttachment = &da;
     vkCmdBeginRendering(cmd, &ri);
 
+    // The stage start's growing window (place()): around it the screen is
+    // black, as on the cabinet, not the back layer's sky, which is laid out
+    // for the 4:3 screen and would show beside it
+    for (const R3DViewport& v : scene_->viewports) {
+        if (!v.world || (v.x <= 0.5f && v.w >= SCREEN_W - 0.5f)) continue;
+        Placed pl = place(v, lay);
+        if (!pl.widened) break;
+        uint32_t x1 = std::min(out_w, uint32_t((pl.x + pl.w) * float(out_w) / lay.view_w + 0.5f));
+        uint32_t y0 = std::min(out_h, uint32_t(v.y * float(out_h) / SCREEN_H + 0.5f));
+        uint32_t y1 = std::min(out_h, uint32_t((v.y + v.h) * float(out_h) / SCREEN_H + 0.5f));
+        VkClearRect rects[3];
+        uint32_t n = 0;
+        if (x1 < out_w) rects[n++] = {{{int32_t(x1), 0}, {out_w - x1, out_h}}, 0, 1};
+        if (y1 < out_h && x1 > 0) rects[n++] = {{{0, int32_t(y1)}, {x1, out_h - y1}}, 0, 1};
+        if (y0 > 0 && x1 > 0) rects[n++] = {{{0, 0}, {x1, y0}}, 0, 1};
+        if (n) {
+            VkClearAttachment clr{VK_IMAGE_ASPECT_COLOR_BIT, 0, {}};
+            clr.clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+            vkCmdClearAttachments(cmd, 1, &clr, n, rects);
+        }
+        break;
+    }
+
     if (vcount) {
         VkDeviceSize zero = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &vertices_.buffer, &zero);
@@ -2091,8 +2132,9 @@ void R3DRenderer::record_world(const Frame& f) {
                     if (!count && !rain_here) continue;
                     // Full-screen viewports are widened (wider horizontal field of
                     // view, same vertical one); smaller ones keep their 4:3 place
-                    bool full = v.x <= 0.5f && v.w >= SCREEN_W - 0.5f;
-                    float vx = full ? 0.0f : v.x + lay.game_x0, vw = full ? lay.view_w : v.w;
+                    Placed pl = place(v, lay);
+                    bool full = pl.widened;
+                    float vx = pl.x, vw = pl.w;
                     VkViewport viewport{vx * sx + jitter_x, v.y * sy + jitter_y, vw * sx, v.h * sy, 0.0f, 1.0f};
                     vkCmdSetViewport(cmd, 0, 1, &viewport);
                     int32_t x0 = std::max(0, int32_t(vx * sx)), y0 = std::max(0, int32_t(v.y * sy));
@@ -2178,8 +2220,9 @@ void R3DRenderer::ao_params(const Frame& f, const R3DViewport& w, float ap[20]) 
     // The occlusion fades with the fog actually drawn, the weather's included
     float ao_sun, ao_ambient, ao_fog, ao_fog_color[4];
     weather_light(w, ao_sun, ao_ambient, ao_fog, ao_fog_color);
-    bool full = w.x <= 0.5f && w.w >= SCREEN_W - 0.5f;
-    float vx = full ? 0.0f : w.x + lay.game_x0, vw = full ? lay.view_w : w.w;
+    Placed pl = place(w, lay);
+    bool full = pl.widened;
+    float vx = pl.x, vw = pl.w;
     static const bool rt_split = getenv("LW_RTSPLIT");   // debugging aid, as in the shadow pass
     const float v[20] = {w.proj[0] / (full ? widen : 1.0f), w.proj[5], w.proj[8] / (full ? widen : 1.0f),
                          w.proj[9], vx * sx + f.jitter_x, w.y * sy + f.jitter_y, vw * sx, w.h * sy,
@@ -2232,8 +2275,9 @@ void R3DRenderer::record_world_prepass(const Frame& f, bool ao_on) {
     for (const R3DViewport& v : vps) {
         if (v.priority != prio || !v.opaque_count) continue;
         // Placed exactly as in record_world's opaque pass
-        bool full = v.x <= 0.5f && v.w >= SCREEN_W - 0.5f;
-        float vx = full ? 0.0f : v.x + lay.game_x0, vw = full ? lay.view_w : v.w;
+        Placed pl = place(v, lay);
+        bool full = pl.widened;
+        float vx = pl.x, vw = pl.w;
         VkViewport viewport{vx * sx + f.jitter_x, v.y * sy + f.jitter_y, vw * sx, v.h * sy, 0.0f, 1.0f};
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         int32_t x0 = std::max(0, int32_t(vx * sx)), y0 = std::max(0, int32_t(v.y * sy));
@@ -2290,8 +2334,9 @@ void R3DRenderer::record_world_depth(const Frame& f, const R3DViewport& w, bool 
     // The occlusion fades with the fog actually drawn, the weather's included
     float ao_sun, ao_ambient, ao_fog, ao_fog_color[4];
     weather_light(w, ao_sun, ao_ambient, ao_fog, ao_fog_color);
-    bool full = w.x <= 0.5f && w.w >= SCREEN_W - 0.5f;
-    float vx = full ? 0.0f : w.x + lay.game_x0, vw = full ? lay.view_w : w.w;
+    Placed pl = place(w, lay);
+    bool full = pl.widened;
+    float vx = pl.x, vw = pl.w;
     static const bool rt_split = getenv("LW_RTSPLIT");   // debugging aid, as in the shadow pass
     float ap[20] = {w.proj[0] / (full ? widen : 1.0f), w.proj[5], w.proj[8] / (full ? widen : 1.0f),
                     w.proj[9], vx * sx + jitter_x, w.y * sy + jitter_y, vw * sx, w.h * sy,
