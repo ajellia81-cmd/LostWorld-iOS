@@ -2128,7 +2128,8 @@ void R3DRenderer::record_world(const Frame& f) {
                     // nearest one shows at each pixel, as on the Real3D (spec 7.2),
                     // so their depth goes first. Fire, smoke and other texture-alpha
                     // or luminous effects keep blending in list order.
-                    if (pass == 1) {
+                    if (pass == 1 && !draw_trans_) continue;
+                    if (pass == 1 && trans_prepass_) {
                         ViewportPush pd = pc;
                         pd.quality[0] = -1000.0f;
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, trans_depth_);

@@ -1722,6 +1722,7 @@ void App::apply_video_options(const Options* was) {
     renderer.set_rim_light(o.rim);
     renderer.set_relief(o.relief);
     renderer.set_early_z(o.early_z);
+    renderer.set_trans(o.trans_prepass, o.draw_trans);
     renderer.set_sharpen(o.sharpen ? 0.5f : 0.0f);
     renderer.set_modern_torch(o.modern_torch);
     if (!was || o.sky_procedural != was->sky_procedural) {
@@ -2057,27 +2058,27 @@ void App::update_bench() {
         const char* name;
         void (*set)(Options&);
     };
-    // (bench_v2 measured the anisotropic filtering, surface detail, haze,
-    // shadows, ambient occlusion, soft particles, HDR and rim light)
-    // (bench_v3: resolution, rain, torch, sharpening, xBR, shafts, bloom)
-    // bench_v4: the early depth of the 3D pass, with the arcade's own options
+    // (bench_v2-v4 measured the effects, the resolution and the early depth
+    // once, in the first minute of play.) Now: wherever the 3D gets heavy (a
+    // second of play over 7.5 ms per image: the stage 2 boss's water, the
+    // lightning gun's hits), what the see-through surfaces cost there, against
+    // the pixels. A few times a session, a minute apart at least.
     static const Step STEPS[] = {
-        {"early depth: solid only", [](Options& o) { o.early_z = 1; }},
-        {"early depth: none", [](Options& o) { o.early_z = 0; }},
+        {"see-through depth first off", [](Options& o) { o.trans_prepass = false; }},
+        {"see-through surfaces off", [](Options& o) { o.draw_trans = false; }},
         {"3D at 75% (pixel bound?)", [](Options& o) { o.supersample = 0.75f; }},
     };
     constexpr int COUNT = int(sizeof(STEPS) / sizeof(STEPS[0]));
-    constexpr double HALF = 0.6, SETTLE = 0.2;   // each half, and its first part not counted
-    constexpr int HALVES = 8;
-    static int step = file_exists("save/bench_v4") || !g_opt.menu ? COUNT : -1;
+    constexpr double HALF = 0.5, SETTLE = 0.15;   // each half, and its first part not counted
+    constexpr int HALVES = 6;
+    static int step = COUNT, runs = 0;
     static Options base;
-    static double half_from = 0;
-    static int half = 0;
+    static double half_from = 0, window_from = 0, window_ms = 0, last_run = -1e9;
+    static int half = 0, window_frames = 0;
     static double sum[2] = {0, 0};
     static int frames[2] = {0, 0};
-    if (step >= COUNT) return;
     double now = now_seconds();
-    bool playing = !frontend.active() && !intro && g_inputs.p[0].playing && !g_hold;
+    bool playing = !frontend.active() && !intro && (g_inputs.p[0].playing || g_inputs.p[1].playing) && !g_hold;
     auto set_half = [&](int h) {
         Options was = g_opt;
         g_opt = base;
@@ -2086,23 +2087,34 @@ void App::update_bench() {
         half = h;
         half_from = now;
     };
-    if (!playing) {
-        if (step >= 0 && half != 0) {   // interrupted: as set, and this effect starts over
-            set_half(0);
-            sum[0] = sum[1] = 0, frames[0] = frames[1] = 0;
+    int n = 0;
+    double ms = renderer.take_gpu_ms(n);
+    if (step >= COUNT) {   // watching for a heavy second
+        if (!playing || runs >= 4 || now - last_run < 60) {
+            window_from = now, window_ms = 0, window_frames = 0;
+            return;
         }
-        return;
-    }
-    if (step < 0) {
+        window_ms += ms, window_frames += n;
+        if (now - window_from < 1.0) return;
+        double avg = window_frames ? window_ms / window_frames : 0;
+        window_from = now, window_ms = 0, window_frames = 0;
+        if (avg < 7.5) return;
         base = g_opt;
-        step = 0;
+        step = 0, runs++;
         sum[0] = sum[1] = 0, frames[0] = frames[1] = 0;
-        printf("[bench] measuring what each effect costs, each against the settings as set (a minute of play, once)\n");
+        printf("[bench] a heavy scene (%.2f ms per image, heat %d): what its parts cost\n", avg,
+               platform_thermal_state());
         set_half(0);
         return;
     }
-    int n = 0;
-    double ms = renderer.take_gpu_ms(n);
+    if (!playing) {   // interrupted: as set, and watching again
+        Options was = g_opt;
+        g_opt = base;
+        apply_video_options(&was);
+        step = COUNT, last_run = now;
+        printf("[bench] interrupted\n");
+        return;
+    }
     if (now - half_from >= SETTLE) sum[half & 1] += ms, frames[half & 1] += n;
     if (now - half_from < HALF) return;
     if (half + 1 < HALVES) {
@@ -2110,7 +2122,7 @@ void App::update_bench() {
         return;
     }
     double on = frames[0] ? sum[0] / frames[0] : 0, off = frames[1] ? sum[1] / frames[1] : 0;
-    printf("[bench] %-27s as set %6.2f ms, with it off %6.2f ms: it costs %+6.2f ms (%d / %d frames)\n",
+    printf("[bench] %-29s as set %6.2f ms, with it off %6.2f ms: it costs %+6.2f ms (%d / %d frames)\n",
            STEPS[step].name, on, off, on - off, frames[0], frames[1]);
     fflush(stdout);
     step++;
@@ -2121,7 +2133,7 @@ void App::update_bench() {
         Options was = g_opt;
         g_opt = base;
         apply_video_options(&was);
-        if (FILE* f = fopen("save/bench_v4", "w")) fclose(f);
+        last_run = now;
         printf("[bench] done; the settings are as they were\n");
     }
 }
@@ -2202,7 +2214,7 @@ void App::on_app_active() {
 void App::read_inputs() {
 #ifndef _WIN32
     update_touch();
-    update_bench();   // once, in the first minute of play (save/bench_v4)
+    update_bench();   // where the 3D gets heavy: what its parts cost (the log)
 #endif
     g_anchor_hud = g_inputs.p[0].playing || g_inputs.p[1].playing;
 #ifndef _WIN32

@@ -23,6 +23,9 @@ struct Options {
     // Tile-based GPUs (iOS): what the 3D pass lays its depth down for first.
     // 0 nothing, 1 solid surfaces, 2 also the alpha-tested ones (foliage)
     int early_z = 1;   // (2 measured slower in the forest on an iPhone 18 Pro Max)
+    // Measuring only (App::update_bench): the see-through surfaces' depth laid
+    // down first, and the see-through surfaces drawn at all
+    bool trans_prepass = true, draw_trans = true;
     int msaa = 4;                    // --msaa: samples per pixel (1 = off)
     bool dlaa = false;               // --aa dlaa: NVIDIA DLAA instead of MSAA
     int aniso = 8;                   // --aniso: anisotropic taps (0 = no mipmaps, original look)
