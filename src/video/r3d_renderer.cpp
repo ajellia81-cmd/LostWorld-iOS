@@ -111,10 +111,13 @@ struct Placed {
     float x, w;
     bool widened;
 };
+// The priority of the scene's own layer (the first viewport's), set per frame:
+// the growing window is not always the one track_world picks as the world
+static int g_scene_priority = -1;
 static Placed place(const R3DViewport& v, const ScreenLayout& lay) {
     const float widen = lay.view_w / SCREEN_W;
     if (v.x <= 0.5f && v.w >= SCREEN_W - 0.5f) return {0.0f, lay.view_w, true};
-    if (v.world && v.x <= 0.5f && v.w > 0.0f) return {0.0f, v.w * widen, true};
+    if (v.priority == g_scene_priority && v.x <= 0.5f && v.y <= 0.5f && v.w > 0.0f) return {0.0f, v.w * widen, true};
     return {v.x + lay.game_x0, v.w, false};
 }
 
@@ -2026,7 +2029,7 @@ void R3DRenderer::record_world(const Frame& f) {
     // (no scene yet while the game boots)
     if (scene_ && vcount)
     for (const R3DViewport& v : scene_->viewports) {
-        if (!v.world || (v.x <= 0.5f && v.w >= SCREEN_W - 0.5f)) continue;
+        if (v.priority != g_scene_priority || (v.x <= 0.5f && v.w >= SCREEN_W - 0.5f)) continue;
         Placed pl = place(v, lay);
         if (!pl.widened) break;
         uint32_t x1 = std::min(out_w, uint32_t((pl.x + pl.w) * float(out_w) / lay.view_w + 0.5f));
@@ -2675,6 +2678,7 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
     f.out_h = std::max(1u, uint32_t(SCREEN_H * f.lay.scale * supersample_));
     ensure_targets(f.out_w, f.out_h);
     f.vcount = scene_ ? scene_->vertices.size() : 0;
+    g_scene_priority = scene_ && !scene_->viewports.empty() ? scene_->viewports.front().priority : -1;
     // Our rain, in the world viewport's view space, after the scene's vertices
     rain_vertices_.clear();
     if (scene_)
