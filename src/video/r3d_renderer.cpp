@@ -2023,6 +2023,8 @@ void R3DRenderer::record_world(const Frame& f) {
     // The stage start's growing window (place()): around it the screen is
     // black, as on the cabinet, not the back layer's sky, which is laid out
     // for the 4:3 screen and would show beside it
+    // (no scene yet while the game boots)
+    if (scene_ && vcount)
     for (const R3DViewport& v : scene_->viewports) {
         if (!v.world || (v.x <= 0.5f && v.w >= SCREEN_W - 0.5f)) continue;
         Placed pl = place(v, lay);
