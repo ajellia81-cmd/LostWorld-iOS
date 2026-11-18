@@ -1015,6 +1015,17 @@ void R3DRenderer::set_layers(const uint32_t* back, const uint32_t* front) {
                 break;
             }
     back_black_ = black;
+    // How far right the back layer reaches on screen (the stage start's
+    // growing window: the game opens its sky to the window by 32-pixel
+    // columns, a step behind the 3D window; back_layer_mode spreads it to it)
+    int reach = 0;
+    for (int y = 0; y < SCREEN_H; y += 8)
+        for (int x = SCREEN_W - 1; x >= reach; x--)
+            if (back[y * BACK_W + BACK_MARGIN + x] & 0xFFFFFF) {
+                reach = x + 1;
+                break;
+            }
+    back_reach_ = reach;
 }
 
 void R3DRenderer::set_text_cells(const uint32_t* cells) {
@@ -1267,7 +1278,12 @@ float R3DRenderer::back_layer_mode() const {
     int scene_priority = scene_->viewports.front().priority;
     for (const R3DViewport& v : scene_->viewports)
         if (v.priority == scene_priority && v.x <= 0.5f && v.w >= SCREEN_W - 0.5f) return 1.0f;
-    return 2.0f;
+    // 2 + the part of the window the sky reaches (it is stretched to all of it)
+    float window = 0;
+    for (const R3DViewport& v : scene_->viewports)
+        if (v.priority == scene_priority && v.x <= 0.5f && v.y <= 0.5f) window = std::max(window, v.w);
+    float part = window > 0 && back_reach_ > 0 ? std::clamp(float(back_reach_) / window, 0.05f, 1.0f) : 1.0f;
+    return 2.0f + part;
 }
 
 // Scroll fog (spec 7.4): from the lowest priority that has any, the viewport
