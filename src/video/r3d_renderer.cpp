@@ -1019,7 +1019,9 @@ void R3DRenderer::set_layers(const uint32_t* back, const uint32_t* front) {
     // growing window: the game opens its sky to the window by 32-pixel
     // columns, a step behind the 3D window; back_layer_mode spreads it to it)
     int reach = 0;
-    for (int y = 0; y < SCREEN_H; y += 8)
+    // (the top rows: the sky; lower down other back pictures behind the
+    // 3D image can reach further)
+    for (int y = 0; y < 16; y += 2)
         for (int x = SCREEN_W - 1; x >= reach; x--)
             if (back[y * BACK_W + BACK_MARGIN + x] & 0xFFFFFF) {
                 reach = x + 1;
@@ -1283,6 +1285,11 @@ float R3DRenderer::back_layer_mode() const {
     for (const R3DViewport& v : scene_->viewports)
         if (v.priority == scene_priority && v.x <= 0.5f && v.y <= 0.5f) window = std::max(window, v.w);
     float part = window > 0 && back_reach_ > 0 ? std::clamp(float(back_reach_) / window, 0.05f, 1.0f) : 1.0f;
+    static int logged = 0;
+    if (logged < 40) {
+        logged++;
+        printf("[opening] window %.1f, sky to %d: %.3f\n", window, back_reach_, part);
+    }
     return 2.0f + part;
 }
 
