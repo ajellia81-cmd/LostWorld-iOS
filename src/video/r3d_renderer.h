@@ -394,7 +394,8 @@ private:
     float night_level_ = 0;   // how much of the night sky shows, eased towards 0 or 1
     bool modern_torch_ = true;
     bool back_black_ = false;
-    int back_reach_ = SCREEN_W;   // the back layer's rightmost column on screen, + 1   // the back layer is solid black (no sky drawn)
+    int back_reach_ = SCREEN_W;
+    uint32_t back_probe_ = 0;   // the back layer's rightmost column on screen, + 1   // the back layer is solid black (no sky drawn)
     Image shadow_map_;                 // depth seen from the sun
     float shadow_strength_ = 0;
     float shadow_matrix_[16] = {};     // view space -> shadow map, this frame
