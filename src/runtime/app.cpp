@@ -2144,6 +2144,10 @@ void App::update_bench() {
     static int half = 0, window_frames = 0;
     static double sum[2] = {0, 0};
     static int frames[2] = {0, 0};
+    // Only on request now (LW_BENCH=1 in env.txt): it turns the see-through
+    // surfaces off and on, which shows (the stage 2 boss's water flickers)
+    static const bool wanted = getenv("LW_BENCH") != nullptr;
+    if (!wanted) return;
     double now = now_seconds();
     bool playing = !frontend.active() && !intro && (g_inputs.p[0].playing || g_inputs.p[1].playing) && !g_hold;
     auto set_half = [&](int h) {
