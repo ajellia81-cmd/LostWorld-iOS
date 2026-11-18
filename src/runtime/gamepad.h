@@ -78,6 +78,7 @@ private:
         uint32_t id = 0;
         bool nintendo = false;   // A on the right: accept and back swap
         bool buttons[32] = {}, left_trigger = false, right_trigger = false;
+        double up_at[32] = {};   // when a held button was first seen up (debounce, see poll)
         float full_tilt = 0;     // seconds with a stick held all the way
         // Gyroscope: sight motion gathered since the last poll, the bias
         // learnt while the pad lies still, and gravity (which way is up)

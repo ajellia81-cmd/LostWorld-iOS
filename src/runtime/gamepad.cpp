@@ -15,6 +15,8 @@ namespace {
 constexpr float SCREEN_ASPECT = 496.0f / 384.0f;   // the sight moves as many pixels up as across
 constexpr float STICK_DEAD = 0.15f, STICK_FULL = 0.92f;
 constexpr float TRIGGER_DOWN = 0.35f;
+constexpr float TRIGGER_UP = 0.2f;          // a held trigger is let go below this
+constexpr double BUTTON_SETTLE = 0.04;      // seconds a button stays down after the pad says up
 constexpr float RUMBLE_STRENGTH[4] = {0.0f, 0.45f, 0.75f, 1.0f};
 
 // 1..10 around 5 = 1: each step about 19% faster (stick) or 32% (gyroscope)
@@ -194,10 +196,22 @@ void Gamepads::poll(const GamepadSettings& set, bool focused, bool menu) {
         float gdx = s.gyro_dx, gdy = s.gyro_dy;
         s.gyro_dx = s.gyro_dy = 0;
         // Buttons and triggers, with what changed since the last poll
+        // A held button only counts as let go once it has been up for a moment:
+        // some pads (pressure-sensitive buttons) report a press as down, up,
+        // down within a few milliseconds, which made a double press
         bool now_down[32] = {};
-        for (int b = 0; b < SDL_GAMEPAD_BUTTON_COUNT && b < 32; b++) now_down[b] = SDL_GetGamepadButton(p, SDL_GamepadButton(b));
-        bool lt = SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > int(TRIGGER_DOWN * 32767);
-        bool rt = SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > int(TRIGGER_DOWN * 32767);
+        for (int b = 0; b < SDL_GAMEPAD_BUTTON_COUNT && b < 32; b++) {
+            bool raw = SDL_GetGamepadButton(p, SDL_GamepadButton(b));
+            if (raw || !s.buttons[b]) s.up_at[b] = 0;
+            else if (s.up_at[b] == 0) s.up_at[b] = now_;
+            now_down[b] = raw || (s.buttons[b] && now_ - s.up_at[b] < BUTTON_SETTLE);
+        }
+        // (the triggers with some hysteresis, for the same reason)
+        auto trigger = [&](SDL_GamepadAxis a, bool was) {
+            return SDL_GetGamepadAxis(p, a) > int((was ? TRIGGER_UP : TRIGGER_DOWN) * 32767);
+        };
+        bool lt = trigger(SDL_GAMEPAD_AXIS_LEFT_TRIGGER, s.left_trigger);
+        bool rt = trigger(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, s.right_trigger);
         auto down = [&](SDL_GamepadButton b) { return now_down[b]; };
         auto pressed = [&](SDL_GamepadButton b) { return now_down[b] && !s.buttons[b]; };
         bool lt_pressed = lt && !s.left_trigger, rt_pressed = rt && !s.right_trigger;
