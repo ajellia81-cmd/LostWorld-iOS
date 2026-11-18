@@ -1071,7 +1071,8 @@ void App::start_maker(int i) {
     // itself plays up to the boss, unseen, muted and at full speed, from its
     // home state (boss_maker_frame, g_boss_live), while the list is open
     if (g_boss_live || live_maker >= 0) return;
-    CreateDirectoryA("save/boss", nullptr);   // (made by the maker process on Windows)
+    if (!CreateDirectoryA("save/boss", nullptr) && GetFileAttributesA("save/boss") != FILE_ATTRIBUTE_DIRECTORY)
+        printf("[boss] could not make the folder save/boss: %s\n", strerror(errno));   // (made by the maker process on Windows)
     g_boss_live_result = 0;
     g_boss_live_abort = false;
     // (the game stands still behind the menu where the boot screens ended,

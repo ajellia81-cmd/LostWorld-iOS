@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -956,7 +957,10 @@ std::unique_ptr<GameState> capture_state(const Ctx& c) {
 
 bool write_state(const char* path, const GameState& st) {
     FILE* f = fopen(path, "wb");
-    if (!f) return false;
+    if (!f) {
+        printf("[state] could not write %s: %s\n", path, strerror(errno));
+        return false;
+    }
     uint32_t head[4] = {STATE_MAGIC, STATE_VERSION, uint32_t(sizeof(Ctx)), uint32_t(st.chain.size())};
     fwrite(head, 4, 4, f);
     fwrite(st.chain.data(), 4, st.chain.size(), f);
@@ -976,6 +980,7 @@ bool write_state(const char* path, const GameState& st) {
     put_packed(f, st.sound.data(), st.sound.size());
     fwrite(&st.midi_ctrl, 1, 1, f);
     bool ok = ferror(f) == 0;
+    if (!ok) printf("[state] could not write %s: %s\n", path, strerror(errno));
     fclose(f);
     return ok;
 }
@@ -1213,6 +1218,7 @@ static void boss_maker_frame() {
         int r = game_state_result();
         if (r == 0) return;
         bool ok = r > 0 && MoveFileExA((path + ".tmp").c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
+        if (!ok) printf("[boss] saving: result %d, %s\n", r, r > 0 ? strerror(errno) : "the file not written");
         printf("[boss] %ls: %s (frame %llu; %u notes restarted on stopped voices)\n", b.name,
                ok ? "state saved" : "could not save", (unsigned long long)f, unsigned(Scsp::restarted()));
         if (live) return finish_live(ok);
