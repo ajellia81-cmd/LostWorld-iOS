@@ -719,7 +719,9 @@ std::vector<Frontend::Item> Frontend::items() const {
     }
     case Screen::Play:
         return {{CLASSIC, L"CLASSIC ARCADE", L"", L"The arcade game: as it was, or with the dinosaurs shuffled"},
+#ifdef _WIN32   // (iOS: hidden; its boss states made inside the app, app.cpp start_maker, were for testing)
                 {BOSS, L"BOSS FIGHT", L"", L"Pick a boss and go straight to the fight"},
+#endif
                 {SURVIVAL, L"SURVIVAL", L"", L"Hold one spot against endless waves of dinosaurs"},
                 {BACK, L"BACK", L"", L"Return to the main menu"}};
     case Screen::Classic:
