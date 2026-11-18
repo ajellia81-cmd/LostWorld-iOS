@@ -2196,7 +2196,16 @@ void R3DRenderer::record_world(const Frame& f) {
                     // so their depth goes first. Fire, smoke and other texture-alpha
                     // or luminous effects keep blending in list order.
                     if (pass == 1 && !draw_trans_) continue;
-                    if (pass == 1 && trans_prepass_) {
+                    // (only where there is such a model: the stage 2 boss's water
+                    // and the weapons' effects, all of them effects, would cost
+                    // the whole pass for nothing)
+                    auto model_see_through = [&] {
+                        const uint32_t effect = R3D_TEX_ALPHA | R3D_ALPHA_TEST | R3D_LUMINOUS;
+                        for (uint32_t t = 0; t + 2 < count; t += 3)
+                            if ((scene_->vertices[v.trans_first + t].flags & effect) == 0) return true;
+                        return false;
+                    };
+                    if (pass == 1 && trans_prepass_ && count && model_see_through()) {
                         ViewportPush pd = pc;
                         pd.quality[0] = -1000.0f;
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, trans_depth_);
