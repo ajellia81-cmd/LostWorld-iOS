@@ -295,6 +295,7 @@ private:
     void update_atmosphere(const ScreenLayout& lay, uint32_t target_w, uint32_t target_h);
     bool back_layer_extended() const;
     float back_layer_mode() const;
+    mutable float opening_seen_ = -10.0f;   // when back_layer_mode last saw the stage start's growing window
     void ensure_targets(uint32_t w, uint32_t h);
     void upload_slot(VkDescriptorSet set, uint32_t binding, VkSampler sampler, uint32_t slot, int w, int h,
                      const std::vector<uint8_t>& rgba,

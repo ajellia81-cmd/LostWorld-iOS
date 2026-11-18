@@ -1266,7 +1266,12 @@ float R3DRenderer::back_layer_mode() const {
     if (!scene_ || scene_->viewports.empty()) return 1.0f;
     int scene_priority = scene_->viewports.front().priority;
     for (const R3DViewport& v : scene_->viewports)
-        if (v.priority == scene_priority && v.x <= 0.5f && v.w >= SCREEN_W - 0.5f) return 1.0f;
+        if (v.priority == scene_priority && v.x <= 0.5f && v.w >= SCREEN_W - 0.5f) {
+            // 3: just after the growing window filled the screen, its last
+            // sky columns still opening (as 1, the unopened ones filled in)
+            return launch_seconds() - opening_seen_ < 0.25f ? 3.0f : 1.0f;
+        }
+    opening_seen_ = launch_seconds();
     return 2.0f;
 }
 

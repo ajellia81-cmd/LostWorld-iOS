@@ -401,7 +401,7 @@ void main() {
         // (hud.w 2: the stage start's growing window, widened over the screen:
         // the game sizes its sky to that window in 4:3 terms, so the 4:3
         // back layers are spread over the whole width with it)
-        float qbx = pc.hud.w > 1.5 ? p.x : q.x;
+        float qbx = pc.hud.w > 1.5 && pc.hud.w < 2.5 ? p.x : q.x;   // (3: as 1, see below)
         vec2 qb = vec2((qbx * float(SIZE_2D.x) + float(BACK_MARGIN)) / float(SIZE_BACK.x), q.y);
         // The back layers (sky) at their sub-pixel position, going on between
         // game frames like the 3D image in front of them (sky_motion.h): per
@@ -419,7 +419,7 @@ void main() {
         // step or two behind the 3D window; where a column is not open yet,
         // the open one before it is mirrored in)
         if (pc.hud.w > 1.5) {
-            for (int i = 0; i < 3; i++) {
+            for (int i = 0; i < 8; i++) {
                 float sx = qb.x * float(SIZE_BACK.x) - float(BACK_MARGIN);
                 ivec2 t = clamp(ivec2(int(qb.x * float(SIZE_BACK.x)), int(qb.y * float(SIZE_BACK.y))), ivec2(0), SIZE_BACK - 1);
                 if (texelFetch(layer2d_back, t, 0).a > 0.5 || sx < 32.0) break;
