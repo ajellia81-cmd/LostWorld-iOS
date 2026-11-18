@@ -1015,21 +1015,6 @@ void R3DRenderer::set_layers(const uint32_t* back, const uint32_t* front) {
                 break;
             }
     back_black_ = black;
-    // How far right the back layer reaches on screen (the stage start's
-    // growing window: the game opens its sky to the window by 32-pixel
-    // columns, a step behind the 3D window; back_layer_mode spreads it to it)
-    int reach = 0;
-    // (the top rows: the sky; lower down other back pictures behind the
-    // 3D image can reach further)
-    for (int y = 0; y < 16; y += 2)
-        for (int x = SCREEN_W - 1; x >= reach; x--)
-            if (uint32_t c = back[y * BACK_W + BACK_MARGIN + x];
-                (c >> 24) >= 128 && std::max({(c >> 16) & 255u, (c >> 8) & 255u, c & 255u}) > 24) {
-                reach = x + 1;
-                break;
-            }
-    back_reach_ = reach;
-    back_probe_ = back[2 * BACK_W + BACK_MARGIN + SCREEN_W - 2];
 }
 
 void R3DRenderer::set_text_cells(const uint32_t* cells) {
@@ -1282,18 +1267,7 @@ float R3DRenderer::back_layer_mode() const {
     int scene_priority = scene_->viewports.front().priority;
     for (const R3DViewport& v : scene_->viewports)
         if (v.priority == scene_priority && v.x <= 0.5f && v.w >= SCREEN_W - 0.5f) return 1.0f;
-    // 2 + the part of the window the sky reaches (it is stretched to all of it)
-    float window = 0;
-    for (const R3DViewport& v : scene_->viewports)
-        if (v.priority == scene_priority && v.x <= 0.5f && v.y <= 0.5f) window = std::max(window, v.w);
-    float part = window > 0 && back_reach_ > 0 ? std::clamp(float(back_reach_) / window, 0.05f, 1.0f) : 1.0f;
-    static int logged = 0, last_reach = -1;
-    if (logged < 40 && back_reach_ != last_reach) {
-        logged++;
-        last_reach = back_reach_;
-        printf("[opening] window %.1f, sky to %d: %.3f (top right %08X)\n", window, back_reach_, part, back_probe_);
-    }
-    return 2.0f + part;
+    return 2.0f;
 }
 
 // Scroll fog (spec 7.4): from the lowest priority that has any, the viewport
