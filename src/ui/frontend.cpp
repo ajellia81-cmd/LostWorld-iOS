@@ -719,9 +719,7 @@ std::vector<Frontend::Item> Frontend::items() const {
     }
     case Screen::Play:
         return {{CLASSIC, L"CLASSIC ARCADE", L"", L"The arcade game: as it was, or with the dinosaurs shuffled"},
-#ifdef _WIN32   // (iOS: the boss states are made by another copy of the game, which an app cannot start)
                 {BOSS, L"BOSS FIGHT", L"", L"Pick a boss and go straight to the fight"},
-#endif
                 {SURVIVAL, L"SURVIVAL", L"", L"Hold one spot against endless waves of dinosaurs"},
                 {BACK, L"BACK", L"", L"Return to the main menu"}};
     case Screen::Classic:
@@ -762,7 +760,11 @@ std::vector<Frontend::Item> Frontend::items() const {
             Item it{BOSS_ENTRY, BOSSES[i].name, stage, stage + L".  Straight to the fight", st == BOSS_READY, i};
             if (st == BOSS_PREPARING) {
                 it.value = L"PREPARING";
+#ifdef _WIN32
                 it.hint = L"Playing up to this boss by itself in the background.  A minute or two, only the first time";
+#else
+                it.hint = L"Playing up to this boss by itself.  Keep this list open: a minute or so, only the first time";
+#endif
             } else if (st == BOSS_FAILED) {
                 it.value = L"NOT READY";
                 it.hint = L"The game could not reach this boss by itself.  PREPARE AGAIN tries once more";

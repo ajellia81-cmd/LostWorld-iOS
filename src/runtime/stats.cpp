@@ -421,7 +421,15 @@ std::vector<int> stats_take_new_achievements() {
     return r;
 }
 
+extern int g_boss_maker;   // runtime.cpp: the game playing by itself up to a boss
+
 void stats_frame() {
+    if (g_boss_maker >= 0) {   // (iOS: inside the app) not the player's game: nothing counted
+        std::lock_guard<std::mutex> lock(g.mutex);
+        g.rebase = true;
+        g.hits_this_frame = 0;
+        return;
+    }
     if (g.on) g.frame_tick();
 }
 

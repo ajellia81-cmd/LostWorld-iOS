@@ -33,6 +33,8 @@ extern std::map<uint32_t, uint64_t> g_trace_hits;   // function -> hit count
 extern uint32_t g_diff_fn;
 extern uint64_t g_diff_frame;
 extern int g_boss_maker;           // --make-boss-state: boss index, -1 when not making one
+extern std::atomic<bool> g_boss_live, g_boss_live_abort;   // a boss state made inside the app (runtime.cpp)
+extern std::atomic<int> g_boss_live_result;
 extern std::atomic<int> g_subtitles;   // 0 none, 1 English, 2 Japanese (the board's own)
 
 // Devices shared with the window thread

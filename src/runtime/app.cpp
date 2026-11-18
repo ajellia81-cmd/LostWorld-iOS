@@ -242,8 +242,8 @@ static void shot_outside_reloads(int player) {
 
 static void poll_keyboard_mouse(HWND hwnd) {
     // Scripted input (--auto) takes over the controls
-    if (GetForegroundWindow() != hwnd || !g_auto.events.empty() || survival_owns_inputs() || g_arcade_entry) {
-        if (g_auto.events.empty() && !survival_owns_inputs() && !g_arcade_entry)   // in the background: no gun stays held
+    if (GetForegroundWindow() != hwnd || !g_auto.events.empty() || survival_owns_inputs() || g_arcade_entry || g_boss_maker >= 0) {
+        if (g_auto.events.empty() && !survival_owns_inputs() && !g_arcade_entry && g_boss_maker < 0)   // in the background: no gun stays held
             for (PlayerInputs& pl : g_inputs.p) pl.trigger = pl.offscreen = false;
         raw_mice::update(hwnd, false, false);
         return;
@@ -392,7 +392,7 @@ static bool poll_gamepads(HWND hwnd) {
     for (int i = 0; i < Gamepads::MAX; i++)
         if (connected >> i & 1 && pad_player(i, connected) == 1) g_p2_pad = true;
     if (g_menu_open) std::fill(std::begin(blocked), std::end(blocked), true);   // the button that closes it does not fire
-    if (!focused || g_menu_open || !g_auto.events.empty() || survival_owns_inputs() || g_arcade_entry) return false;
+    if (!focused || g_menu_open || !g_auto.events.empty() || survival_owns_inputs() || g_arcade_entry || g_boss_maker >= 0) return false;
     bool pause = false;
     for (int i = 0; i < Gamepads::MAX; i++) {
         const PadState& pad = g_pads.pad(i);
@@ -899,6 +899,7 @@ struct App {
     std::vector<HANDLE> boss_makers = std::vector<HANDLE>(BOSS_COUNT, nullptr);
     HANDLE boss_job = nullptr;
     int boss_pending = -1;     // picked: loads once the boot screens are skipped
+    int live_maker = -1;       // iOS: the boss whose state the game is making (start_maker)
     bool boss_loading = false; // asked the game thread for it
     int boss_fight = -1;       // the fight on
     double boss_over_at = 0;   // when its stage ended or the game was over
@@ -1066,9 +1067,21 @@ void App::close_menu() {
 // Starts LostWorld.exe --make-boss-state for boss i (see boss_job)
 void App::start_maker(int i) {
 #ifndef _WIN32
-    // iOS port: an app cannot start another copy of itself to play up to the
-    // bosses in the background
-    frontend.boss_status[i] = Frontend::BOSS_FAILED;
+    // iOS port: an app cannot start another copy of itself, so the game
+    // itself plays up to the boss, unseen, muted and at full speed, from its
+    // home state (boss_maker_frame, g_boss_live), while the list is open
+    if (g_boss_live || live_maker >= 0 || !game_state_has_home()) return;
+    g_boss_live_result = 0;
+    g_boss_live_abort = false;
+    game_state_load_home();
+    g_boss_live = true;   // (before g_boss_maker: the game thread reads it once that is set)
+    g_boss_maker = i;
+    g_boot_skip = g_fast_idle = true;
+    g_sound.set_dsp_enabled(false);
+    g_sound.set_muted(true);
+    live_maker = i;
+    frontend.boss_status[i] = Frontend::BOSS_PREPARING;
+    printf("[boss] preparing %ls\n", BOSSES[i].name);
     return;
 #else
     const std::wstring exe = exe_path_w();
@@ -1753,10 +1766,15 @@ void App::cancel_arcade_entry() {
 void App::update_arcade_entry() {
     // Only the arcade game ends in the attract: the boss fights have their own end
     g_skip_attract = g_auto.events.empty() && boss_fight < 0 && !boss_loading && boss_pending < 0;
+#ifndef _WIN32
+    if (g_auto.events.empty() && boss_fight == BOSS_COUNT - 1 && !boss_loading) g_skip_attract = true;   // (update_boss_mode)
+#endif
     // A game over: the main menu instead of the attract, the game back at its
     // home state behind it (attract_guard_frame)
     if (g_game_over_menu.exchange(false)) {
         play_waits = false;
+        boss_fight = -1;
+        frontend.boss_mode = false;
         frontend.open(Frontend::Screen::Main);
         g_menu_open = g_hold = true;
     }
@@ -1867,6 +1885,25 @@ void App::update_boss_mode() {
     // a time so the game keeps its speed; all at once while the list
     // of bosses is open
     bool can_make = !g_boot_skip && GetFileAttributesA("save/eeprom.bin") != INVALID_FILE_ATTRIBUTES;
+#ifndef _WIN32
+    // iOS: made by the game itself (start_maker), one at a time, only while
+    // the list is open from the main menu; leaving it stops the one on
+    if (live_maker >= 0) {
+        if (int r = g_boss_live_result.exchange(0)) {
+            bool ok = r > 0 && game_state_valid(boss_state_path(live_maker));
+            frontend.boss_status[live_maker] = ok                  ? Frontend::BOSS_READY
+                                               : g_boss_live_abort ? Frontend::BOSS_MISSING
+                                                                   : Frontend::BOSS_FAILED;
+            printf("[boss] %ls: %s\n", BOSSES[live_maker].name, ok ? "ready" : "not prepared");
+            live_maker = -1;
+            g_boss_live_abort = false;
+            frontend.invalidate();
+        } else if (frontend.screen() != Frontend::Screen::Boss || frontend.over_game() || boss_pending >= 0)
+            g_boss_live_abort = true;
+    }
+    can_make = can_make && live_maker < 0 && frontend.screen() == Frontend::Screen::Boss && !frontend.over_game() &&
+               boss_fight < 0 && boss_pending < 0 && !play_waits;
+#endif
     for (int i = 0; can_make && i < BOSS_COUNT; i++) {
         bool busy = std::any_of(boss_makers.begin(), boss_makers.end(), [](HANDLE h) { return h != nullptr; });
         if (frontend.boss_status[i] == Frontend::BOSS_MISSING &&
@@ -1905,6 +1942,11 @@ void App::update_boss_mode() {
     if (boss_fight >= 0 && !boss_loading && !frontend.active()) {
         // Player 1 state (docs/game_ram.md): 3 once the continue has run out
         bool over = rd8(0x1A623C) != BOSSES[boss_fight].stage_index || rd8(0x1A3784 + 0xD) == 3;
+#ifndef _WIN32
+        // iOS (for testing the ending): the last boss's fight goes on into the
+        // ending, and the game's end brings the main menu (update_arcade_entry)
+        if (boss_fight == BOSS_COUNT - 1) over = false;
+#endif
         if (!over) boss_over_at = 0;
         else if (boss_over_at == 0) {
             boss_over_at = now_seconds();
