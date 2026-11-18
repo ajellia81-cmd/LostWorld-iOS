@@ -1070,10 +1070,13 @@ void App::start_maker(int i) {
     // iOS port: an app cannot start another copy of itself, so the game
     // itself plays up to the boss, unseen, muted and at full speed, from its
     // home state (boss_maker_frame, g_boss_live), while the list is open
-    if (g_boss_live || live_maker >= 0 || !game_state_has_home()) return;
+    if (g_boss_live || live_maker >= 0) return;
     g_boss_live_result = 0;
     g_boss_live_abort = false;
-    game_state_load_home();
+    // (the game stands still behind the menu where the boot screens ended,
+    // its SEGA logo: kept as the home state first if it is not yet)
+    if (game_state_has_home()) game_state_load_home();
+    else game_state_keep_home();
     g_boss_live = true;   // (before g_boss_maker: the game thread reads it once that is set)
     g_boss_maker = i;
     g_boot_skip = g_fast_idle = true;
@@ -1816,6 +1819,9 @@ void App::handle_menu_actions() {
             cancel_arcade_entry();
             random_spawns_set(false);
             if (frontend.boss_status[frontend.boss_choice] == Frontend::BOSS_READY) boss_pending = frontend.boss_choice;
+#ifndef _WIN32   // (iOS) one not ready yet: made next, the one being made stopped for it
+            else if (live_maker >= 0 && live_maker != frontend.boss_choice) g_boss_live_abort = true;
+#endif
             break;
         case Frontend::Action::PrepareBosses:
             for (int i = 0; i < BOSS_COUNT; i++)
@@ -1903,8 +1909,25 @@ void App::update_boss_mode() {
     }
     can_make = can_make && live_maker < 0 && frontend.screen() == Frontend::Screen::Boss && !frontend.over_game() &&
                boss_fight < 0 && boss_pending < 0 && !play_waits;
+    {   // (why nothing is being made, once each time the list opens)
+        static bool told = false;
+        bool list = frontend.screen() == Frontend::Screen::Boss;
+        if (!list) told = false;
+        else if (!told && !can_make && live_maker < 0) {
+            told = true;
+            printf("[boss] not preparing: boot %d, eeprom %d, over a game %d, fight %d, pending %d, play %d\n", int(g_boot_skip.load()),
+                   int(GetFileAttributesA("save/eeprom.bin") != INVALID_FILE_ATTRIBUTES), int(frontend.over_game()), boss_fight,
+                   boss_pending, int(play_waits));
+        }
+    }
 #endif
-    for (int i = 0; can_make && i < BOSS_COUNT; i++) {
+    for (int k = 0; can_make && k < BOSS_COUNT; k++) {
+#ifdef _WIN32
+        int i = k;
+#else   // (iOS, one at a time: the one picked in the list first)
+        int first = std::clamp(frontend.boss_choice, 0, BOSS_COUNT - 1), i = (first + k) % BOSS_COUNT;
+        if (live_maker >= 0) break;
+#endif
         bool busy = std::any_of(boss_makers.begin(), boss_makers.end(), [](HANDLE h) { return h != nullptr; });
         if (frontend.boss_status[i] == Frontend::BOSS_MISSING &&
             (!busy || frontend.screen() == Frontend::Screen::Boss)) {
