@@ -10,7 +10,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -957,10 +956,7 @@ std::unique_ptr<GameState> capture_state(const Ctx& c) {
 
 bool write_state(const char* path, const GameState& st) {
     FILE* f = fopen(path, "wb");
-    if (!f) {
-        printf("[state] could not write %s: %s\n", path, strerror(errno));
-        return false;
-    }
+    if (!f) return false;
     uint32_t head[4] = {STATE_MAGIC, STATE_VERSION, uint32_t(sizeof(Ctx)), uint32_t(st.chain.size())};
     fwrite(head, 4, 4, f);
     fwrite(st.chain.data(), 4, st.chain.size(), f);
@@ -980,7 +976,6 @@ bool write_state(const char* path, const GameState& st) {
     put_packed(f, st.sound.data(), st.sound.size());
     fwrite(&st.midi_ctrl, 1, 1, f);
     bool ok = ferror(f) == 0;
-    if (!ok) printf("[state] could not write %s: %s\n", path, strerror(errno));
     fclose(f);
     return ok;
 }
@@ -1185,55 +1180,26 @@ static void hide_stage_captions(bool hide) {
 // stage list at 0x1C2AFC) and keeps shooting, with its lives frozen; when the
 // stage script reaches the fight it clears the score and saves the state.
 int g_boss_maker = -1;   // index in BOSSES, -1 when not making one
-// The same inside the running app (iOS, which cannot start another copy of
-// itself): app.cpp sets g_boss_live and g_boss_maker with the game at its
-// home state, unseen and at full speed; the end goes back to the home state
-// and is told in g_boss_live_result (1 saved, -1 not), g_boss_live_abort
-// stops it
-std::atomic<bool> g_boss_live{false}, g_boss_live_abort{false};
-std::atomic<int> g_boss_live_result{0};
 
 static void boss_maker_frame() {
     const BossInfo& b = BOSSES[g_boss_maker];
     static uint8_t lives = 0;
     static bool saving = false;
-    static int run = -1;            // (live) the boss these statics are for
-    static uint64_t from = 0;       // (live) its first frame
     uint64_t f = g_frame;
     std::string path = boss_state_path(g_boss_maker);
-    const bool live = g_boss_live;
-    auto finish_live = [&](bool ok) {
-        for (PlayerInputs& p : g_inputs.p) p.coin = p.start = p.trigger = p.offscreen = false;
-        lives = 0, saving = false, run = -1;
-        g_boss_maker = -1;
-        game_state_load_home();
-        g_boss_live_result = ok ? 1 : -1;
-        g_boss_live = false;
-    };
-    if (live && run != g_boss_maker) {
-        run = g_boss_maker, from = f, lives = 0, saving = false;
-        printf("[boss] %ls: playing up to it (frame %llu)\n", b.name, (unsigned long long)f);
-    }
     if (saving) {
         int r = game_state_result();
         if (r == 0) return;
         bool ok = r > 0 && MoveFileExA((path + ".tmp").c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
-        if (!ok) printf("[boss] saving: result %d, %s\n", r, r > 0 ? strerror(errno) : "the file not written");
         printf("[boss] %ls: %s (frame %llu; %u notes restarted on stopped voices)\n", b.name,
                ok ? "state saved" : "could not save", (unsigned long long)f, unsigned(Scsp::restarted()));
-        if (live) return finish_live(ok);
         exit_from_game_thread(ok ? 0 : 1);
     }
-    if (live && g_boss_live_abort) {
-        printf("[boss] %ls: stopped\n", b.name);
-        return finish_live(false);
-    }
-    if (f - (live ? from : 0) > 250000) {
+    if (f > 250000) {
         printf("[boss] %ls: the game did not reach the boss\n", b.name);
-        if (live) return finish_live(false);
         exit_from_game_thread(1);
     }
-    if (live ? game_state_pending() || f - from < 30 : f < 900) return;   // past the boot (a button held there changes what it does)
+    if (f < 900) return;   // past the boot (a button held there changes what it does)
     uint32_t select = rd32(0x1C2AD8);   // course select: 0 attract, 1-2 choosing, 0xC playing
     if (select == 0) {                  // a credit and start, again until the course select opens
         auto_coin_start(g_inputs.p[0], f);
@@ -1409,7 +1375,6 @@ void rt_event(Ctx& c) {
             if (!g_logo_up && ((g_frame % 4 == 0 && boot_logo_up()) || g_frame > 3000)) g_logo_up = true;
             // Survival mode: on to the chosen stage at full speed, behind its loading screen
             bool boot_done = survival_enabled() ? !survival_owns_inputs() || g_frame > 200000   // (survival gives up first)
-                             : g_boss_live      ? false   // (a boss state being made)
                              : g_arcade_entry   ? arcade_entry_frame()
                                                 : (g_frame % 4 == 0 && boot_logo_up()) || g_frame > 3000;
             if (g_boot_skip && boot_done) {

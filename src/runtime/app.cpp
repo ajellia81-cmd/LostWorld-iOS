@@ -242,8 +242,8 @@ static void shot_outside_reloads(int player) {
 
 static void poll_keyboard_mouse(HWND hwnd) {
     // Scripted input (--auto) takes over the controls
-    if (GetForegroundWindow() != hwnd || !g_auto.events.empty() || survival_owns_inputs() || g_arcade_entry || g_boss_maker >= 0) {
-        if (g_auto.events.empty() && !survival_owns_inputs() && !g_arcade_entry && g_boss_maker < 0)   // in the background: no gun stays held
+    if (GetForegroundWindow() != hwnd || !g_auto.events.empty() || survival_owns_inputs() || g_arcade_entry) {
+        if (g_auto.events.empty() && !survival_owns_inputs() && !g_arcade_entry)   // in the background: no gun stays held
             for (PlayerInputs& pl : g_inputs.p) pl.trigger = pl.offscreen = false;
         raw_mice::update(hwnd, false, false);
         return;
@@ -392,7 +392,7 @@ static bool poll_gamepads(HWND hwnd) {
     for (int i = 0; i < Gamepads::MAX; i++)
         if (connected >> i & 1 && pad_player(i, connected) == 1) g_p2_pad = true;
     if (g_menu_open) std::fill(std::begin(blocked), std::end(blocked), true);   // the button that closes it does not fire
-    if (!focused || g_menu_open || !g_auto.events.empty() || survival_owns_inputs() || g_arcade_entry || g_boss_maker >= 0) return false;
+    if (!focused || g_menu_open || !g_auto.events.empty() || survival_owns_inputs() || g_arcade_entry) return false;
     bool pause = false;
     for (int i = 0; i < Gamepads::MAX; i++) {
         const PadState& pad = g_pads.pad(i);
@@ -850,11 +850,7 @@ struct App {
     uint64_t back_rows_frame = ~0ull, shift_from = ~0ull, shift_to = ~0ull, built_from = ~0ull;
     TextHD text;   // menus, captions and score drawn from vector fonts
     std::atomic<bool> capture_2d{false};   // F12 / --shot: the next 2D composition is saved
-    bool f12_was_down = false, f9_was_down = false, f8_was_down = false;
-    // After a snapshot (F9) the same picture with each HUD shading diagnosis
-    // mode: mode, then frames to wait (the pipelines are made again first)
-    int snap_mode = 0, snap_wait = 0;
-    std::string snap_base;
+    bool f12_was_down = false, f9_was_down = false;
     R3DScene own_scene;   // built on this thread (no interpolation)
     const R3DScene* scene = &own_scene;
     Layers2D own_layers;   // composed on this thread (no 3D, or no interpolation)
@@ -899,7 +895,6 @@ struct App {
     std::vector<HANDLE> boss_makers = std::vector<HANDLE>(BOSS_COUNT, nullptr);
     HANDLE boss_job = nullptr;
     int boss_pending = -1;     // picked: loads once the boot screens are skipped
-    int live_maker = -1;       // iOS: the boss whose state the game is making (start_maker)
     bool boss_loading = false; // asked the game thread for it
     int boss_fight = -1;       // the fight on
     double boss_over_at = 0;   // when its stage ended or the game was over
@@ -934,7 +929,6 @@ struct App {
     bool touch_shown = false;
     void update_touch();
     bool app_inactive = false;
-    void update_bench();
     void on_app_inactive();
     void on_app_active();
 #endif
@@ -1067,26 +1061,9 @@ void App::close_menu() {
 // Starts LostWorld.exe --make-boss-state for boss i (see boss_job)
 void App::start_maker(int i) {
 #ifndef _WIN32
-    // iOS port: an app cannot start another copy of itself, so the game
-    // itself plays up to the boss, unseen, muted and at full speed, from its
-    // home state (boss_maker_frame, g_boss_live), while the list is open
-    if (g_boss_live || live_maker >= 0) return;
-    if (!CreateDirectoryA("save/boss", nullptr) && GetFileAttributesA("save/boss") != FILE_ATTRIBUTE_DIRECTORY)
-        printf("[boss] could not make the folder save/boss: %s\n", strerror(errno));   // (made by the maker process on Windows)
-    g_boss_live_result = 0;
-    g_boss_live_abort = false;
-    // (the game stands still behind the menu where the boot screens ended,
-    // its SEGA logo: kept as the home state first if it is not yet)
-    if (game_state_has_home()) game_state_load_home();
-    else game_state_keep_home();
-    g_boss_live = true;   // (before g_boss_maker: the game thread reads it once that is set)
-    g_boss_maker = i;
-    g_boot_skip = g_fast_idle = true;
-    g_sound.set_dsp_enabled(false);
-    g_sound.set_muted(true);
-    live_maker = i;
-    frontend.boss_status[i] = Frontend::BOSS_PREPARING;
-    printf("[boss] preparing %ls\n", BOSSES[i].name);
+    // iOS port: an app cannot start another copy of itself to play up to the
+    // bosses in the background
+    frontend.boss_status[i] = Frontend::BOSS_FAILED;
     return;
 #else
     const std::wstring exe = exe_path_w();
@@ -1771,15 +1748,10 @@ void App::cancel_arcade_entry() {
 void App::update_arcade_entry() {
     // Only the arcade game ends in the attract: the boss fights have their own end
     g_skip_attract = g_auto.events.empty() && boss_fight < 0 && !boss_loading && boss_pending < 0;
-#ifndef _WIN32
-    if (g_auto.events.empty() && boss_fight == BOSS_COUNT - 1 && !boss_loading) g_skip_attract = true;   // (update_boss_mode)
-#endif
     // A game over: the main menu instead of the attract, the game back at its
     // home state behind it (attract_guard_frame)
     if (g_game_over_menu.exchange(false)) {
         play_waits = false;
-        boss_fight = -1;
-        frontend.boss_mode = false;
         frontend.open(Frontend::Screen::Main);
         g_menu_open = g_hold = true;
     }
@@ -1821,9 +1793,6 @@ void App::handle_menu_actions() {
             cancel_arcade_entry();
             random_spawns_set(false);
             if (frontend.boss_status[frontend.boss_choice] == Frontend::BOSS_READY) boss_pending = frontend.boss_choice;
-#ifndef _WIN32   // (iOS) one not ready yet: made next, the one being made stopped for it
-            else if (live_maker >= 0 && live_maker != frontend.boss_choice) g_boss_live_abort = true;
-#endif
             break;
         case Frontend::Action::PrepareBosses:
             for (int i = 0; i < BOSS_COUNT; i++)
@@ -1893,43 +1862,7 @@ void App::update_boss_mode() {
     // a time so the game keeps its speed; all at once while the list
     // of bosses is open
     bool can_make = !g_boot_skip && GetFileAttributesA("save/eeprom.bin") != INVALID_FILE_ATTRIBUTES;
-#ifndef _WIN32
-    // iOS: made by the game itself (start_maker), one at a time, only while
-    // the list is open from the main menu; leaving it stops the one on
-    if (live_maker >= 0) {
-        if (int r = g_boss_live_result.exchange(0)) {
-            bool ok = r > 0 && game_state_valid(boss_state_path(live_maker));
-            frontend.boss_status[live_maker] = ok                  ? Frontend::BOSS_READY
-                                               : g_boss_live_abort ? Frontend::BOSS_MISSING
-                                                                   : Frontend::BOSS_FAILED;
-            printf("[boss] %ls: %s\n", BOSSES[live_maker].name, ok ? "ready" : "not prepared");
-            live_maker = -1;
-            g_boss_live_abort = false;
-            frontend.invalidate();
-        } else if (frontend.screen() != Frontend::Screen::Boss || frontend.over_game() || boss_pending >= 0)
-            g_boss_live_abort = true;
-    }
-    can_make = can_make && live_maker < 0 && frontend.screen() == Frontend::Screen::Boss && !frontend.over_game() &&
-               boss_fight < 0 && boss_pending < 0 && !play_waits;
-    {   // (why nothing is being made, once each time the list opens)
-        static bool told = false;
-        bool list = frontend.screen() == Frontend::Screen::Boss;
-        if (!list) told = false;
-        else if (!told && !can_make && live_maker < 0) {
-            told = true;
-            printf("[boss] not preparing: boot %d, eeprom %d, over a game %d, fight %d, pending %d, play %d\n", int(g_boot_skip.load()),
-                   int(GetFileAttributesA("save/eeprom.bin") != INVALID_FILE_ATTRIBUTES), int(frontend.over_game()), boss_fight,
-                   boss_pending, int(play_waits));
-        }
-    }
-#endif
-    for (int k = 0; can_make && k < BOSS_COUNT; k++) {
-#ifdef _WIN32
-        int i = k;
-#else   // (iOS, one at a time: the one picked in the list first)
-        int first = std::clamp(frontend.boss_choice, 0, BOSS_COUNT - 1), i = (first + k) % BOSS_COUNT;
-        if (live_maker >= 0) break;
-#endif
+    for (int i = 0; can_make && i < BOSS_COUNT; i++) {
         bool busy = std::any_of(boss_makers.begin(), boss_makers.end(), [](HANDLE h) { return h != nullptr; });
         if (frontend.boss_status[i] == Frontend::BOSS_MISSING &&
             (!busy || frontend.screen() == Frontend::Screen::Boss)) {
@@ -1967,11 +1900,6 @@ void App::update_boss_mode() {
     if (boss_fight >= 0 && !boss_loading && !frontend.active()) {
         // Player 1 state (docs/game_ram.md): 3 once the continue has run out
         bool over = rd8(0x1A623C) != BOSSES[boss_fight].stage_index || rd8(0x1A3784 + 0xD) == 3;
-#ifndef _WIN32
-        // iOS (for testing the ending): the last boss's fight goes on into the
-        // ending, and the game's end brings the main menu (update_arcade_entry)
-        if (boss_fight == BOSS_COUNT - 1) over = false;
-#endif
         if (!over) boss_over_at = 0;
         else if (boss_over_at == 0) {
             boss_over_at = now_seconds();
@@ -2114,101 +2042,6 @@ void App::update_intro() {
 #ifndef _WIN32
 // iOS port: the touch controls' state for this frame, then their pointer and
 // keys, read by poll_keyboard_mouse as a mouse's; PAUSE and BACK are Esc
-// iOS port, a measurement (once, in the first stage played; save/bench_v3
-// marks it done): what each effect costs the GPU on this phone. The scene
-// changes far more than any effect does, so each effect is measured against
-// the settings as they are in the same moments: it is turned off and on
-// again every 0.6 s for about 5 s, and the frames of both halves compared.
-// The log gets a [bench] line per effect; the settings are put back after.
-void App::update_bench() {
-    struct Step {
-        const char* name;
-        void (*set)(Options&);
-    };
-    // (bench_v2-v4 measured the effects, the resolution and the early depth
-    // once, in the first minute of play.) Now: wherever the 3D gets heavy (a
-    // second of play over 7.5 ms per image: the stage 2 boss's water, the
-    // lightning gun's hits), what the see-through surfaces cost there, against
-    // the pixels. A few times a session, a minute apart at least.
-    static const Step STEPS[] = {
-        {"see-through depth first off", [](Options& o) { o.trans_prepass = false; }},
-        {"see-through surfaces off", [](Options& o) { o.draw_trans = false; }},
-        {"3D at 75% (pixel bound?)", [](Options& o) { o.supersample = 0.75f; }},
-    };
-    constexpr int COUNT = int(sizeof(STEPS) / sizeof(STEPS[0]));
-    constexpr double HALF = 0.5, SETTLE = 0.15;   // each half, and its first part not counted
-    constexpr int HALVES = 6;
-    static int step = COUNT, runs = 0;
-    static Options base;
-    static double half_from = 0, window_from = 0, window_ms = 0, last_run = -1e9;
-    static int half = 0, window_frames = 0;
-    static double sum[2] = {0, 0};
-    static int frames[2] = {0, 0};
-    // Only on request now (LW_BENCH=1 in env.txt): it turns the see-through
-    // surfaces off and on, which shows (the stage 2 boss's water flickers)
-    static const bool wanted = getenv("LW_BENCH") != nullptr;
-    if (!wanted) return;
-    double now = now_seconds();
-    bool playing = !frontend.active() && !intro && (g_inputs.p[0].playing || g_inputs.p[1].playing) && !g_hold;
-    auto set_half = [&](int h) {
-        Options was = g_opt;
-        g_opt = base;
-        if (h & 1) STEPS[step].set(g_opt);
-        apply_video_options(&was);
-        half = h;
-        half_from = now;
-    };
-    int n = 0;
-    double ms = renderer.take_gpu_ms(n);
-    if (step >= COUNT) {   // watching for a heavy second
-        if (!playing || runs >= 4 || now - last_run < 60) {
-            window_from = now, window_ms = 0, window_frames = 0;
-            return;
-        }
-        window_ms += ms, window_frames += n;
-        if (now - window_from < 1.0) return;
-        double avg = window_frames ? window_ms / window_frames : 0;
-        window_from = now, window_ms = 0, window_frames = 0;
-        if (avg < 7.5) return;
-        base = g_opt;
-        step = 0, runs++;
-        sum[0] = sum[1] = 0, frames[0] = frames[1] = 0;
-        printf("[bench] a heavy scene (%.2f ms per image, heat %d): what its parts cost\n", avg,
-               platform_thermal_state());
-        set_half(0);
-        return;
-    }
-    if (!playing) {   // interrupted: as set, and watching again
-        Options was = g_opt;
-        g_opt = base;
-        apply_video_options(&was);
-        step = COUNT, last_run = now;
-        printf("[bench] interrupted\n");
-        return;
-    }
-    if (now - half_from >= SETTLE) sum[half & 1] += ms, frames[half & 1] += n;
-    if (now - half_from < HALF) return;
-    if (half + 1 < HALVES) {
-        set_half(half + 1);
-        return;
-    }
-    double on = frames[0] ? sum[0] / frames[0] : 0, off = frames[1] ? sum[1] / frames[1] : 0;
-    printf("[bench] %-29s as set %6.2f ms, with it off %6.2f ms: it costs %+6.2f ms (%d / %d frames)\n",
-           STEPS[step].name, on, off, on - off, frames[0], frames[1]);
-    fflush(stdout);
-    step++;
-    sum[0] = sum[1] = 0, frames[0] = frames[1] = 0;
-    if (step < COUNT) {
-        set_half(0);
-    } else {
-        Options was = g_opt;
-        g_opt = base;
-        apply_video_options(&was);
-        last_run = now;
-        printf("[bench] done; the settings are as they were\n");
-    }
-}
-
 void App::update_touch() {
     bool any_pad = false;
     for (int i = 0; i < Gamepads::MAX; i++) any_pad = any_pad || g_pads.pad(i).connected;
@@ -2285,7 +2118,6 @@ void App::on_app_active() {
 void App::read_inputs() {
 #ifndef _WIN32
     update_touch();
-    update_bench();   // where the 3D gets heavy: what its parts cost (the log)
 #endif
     g_anchor_hud = g_inputs.p[0].playing || g_inputs.p[1].playing;
 #ifndef _WIN32
@@ -2338,35 +2170,8 @@ void App::read_inputs() {
         dump_scene(*scene, layers_shown->back.data(), layers_shown->front.data(), (base + ".txt").c_str());
         presenter.capture_next(base + ".bmp");
         printf("Snapshot saved to %s.bin\n", base.c_str());
-        snap_base = base;
-        snap_mode = 0;
-        snap_wait = 4;
     }
     f9_was_down = f9;
-    if (!snap_base.empty() && --snap_wait <= 0) {
-        // Odd steps: a mode goes on; even steps (some frames later, when it is
-        // on screen): its picture is taken. The last step turns it off again.
-        int step = snap_mode++;
-        int mode = step / 2 + 1;
-        if (step == 6) {
-            while (renderer.hud_debug() != 0) renderer.toggle_hud_debug();
-            snap_base.clear();
-            printf("[hud] diagnosis pictures done\n");
-        } else if (step % 2 == 0) {
-            while (renderer.hud_debug() != mode) renderer.toggle_hud_debug();
-            snap_wait = 8;
-        } else {
-            presenter.capture_next(snap_base + "_mode" + std::to_string(mode) + ".bmp");
-            printf("[hud] diagnosis picture mode %d: %s_mode%d.bmp\n", mode, snap_base.c_str(), mode);
-            snap_wait = 4;
-        }
-    }
-    bool f8 = GetForegroundWindow() == presenter.hwnd() && (GetAsyncKeyState(VK_F8) & 0x8000);
-    if (f8 && !f8_was_down) {   // HUD shading diagnosis on or off (iOS: four fingers)
-        renderer.toggle_hud_debug();
-        printf("[hud] shading diagnosis mode %d\n", renderer.hud_debug());
-    }
-    f8_was_down = f8;
     if (g_opt.shot_frame && shown != ~0ull && shown + 1 >= g_opt.shot_frame) capture_2d = true;
     for (int p = 0; p < 2; p++) {   // player 2's only while that gun is in use
         PlayerAim aim = player_aim(p);

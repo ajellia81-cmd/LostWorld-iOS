@@ -269,7 +269,7 @@ bool R3DRenderer::init(VkPresenter& vk, float supersample, int msaa, int aniso, 
                TexturePack::MAX_SLOTS);
 
     const VkImageUsageFlags sampled = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    if (!create_image(texture_ram_, 2048, 2048, VK_FORMAT_R16_UINT, sampled | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+    if (!create_image(texture_ram_, 2048, 2048, VK_FORMAT_R16_UINT, sampled,
                       VK_IMAGE_ASPECT_COLOR_BIT))
         return false;
     if (!create_image(back_, BACK_W, SCREEN_H, VK_FORMAT_B8G8R8A8_UNORM, sampled, VK_IMAGE_ASPECT_COLOR_BIT)) return false;
@@ -762,7 +762,6 @@ uint32_t R3DRenderer::feature_mask() const {
     if (haze_strength_ > 0) m |= 32u;       // FEAT_HAZE
     if (soft_particles_) m |= 64u;          // FEAT_SOFT
     if (aniso_ >= 1.0f) m |= 128u;          // FEAT_ANISO
-    m |= uint32_t(hud_debug_) << 20;       // FEAT_HUD_DEBUG (mode 1-3)
     return m;
 }
 
@@ -2718,136 +2717,6 @@ void R3DRenderer::record(VkCommandBuffer cmd, VkImageView target, VkExtent2D ext
             }
     record_uploads(f);
     update_atmosphere(f.lay, f.out_w, f.out_h);
-#ifndef _WIN32
-    // iOS port, a diagnosis: every 20 s, the 3D HUD (the ammo counter at the
-    // side) as drawn: its viewports' light, and every distinct material in
-    // them (colour, flags, texture) with how many triangles have it
-    {
-        static double last = -100;
-        double now = launch_seconds();
-        if (scene_ && now - last > 20) {
-            bool any = false;
-            for (const R3DViewport& v : scene_->viewports) {
-                if (v.world) continue;
-                struct M { uint32_t color, flags, tex; int count; float n[3], u0, u1, v0, v1, z; };
-                std::vector<M> ms;
-                bool hud = false;
-                for (int pass = 0; pass < 2; pass++) {
-                    uint32_t first = pass ? v.trans_first : v.opaque_first, count = pass ? v.trans_count : v.opaque_count;
-                    for (uint32_t t = 0; t + 2 < count; t += 3) {
-                        const R3DVertex& q = scene_->vertices[first + t];
-                        hud |= (q.flags & (R3D_HUD_LEFT | R3D_HUD_RIGHT)) != 0;
-                        uint32_t fl = q.flags | (pass ? 0x80000000u : 0u);
-                        auto it = std::find_if(ms.begin(), ms.end(),
-                                               [&](const M& m) { return m.color == q.color && m.flags == fl && m.tex == q.tex; });
-                        if (it != ms.end()) {
-                            it->count++;
-                        } else if (ms.size() < 16) {
-                            ms.push_back({q.color, fl, q.tex, 0, {0, 0, 0}, 1e9f, -1e9f, 1e9f, -1e9f, 0});
-                            it = ms.end() - 1;
-                            it->count = 1;
-                        } else {
-                            continue;
-                        }
-                        for (int k = 0; k < 3; k++) {
-                            const R3DVertex& e = scene_->vertices[first + t + k];
-                            for (int c = 0; c < 3; c++) it->n[c] += e.nrm[c];
-                            it->u0 = std::min(it->u0, e.uv[0]), it->u1 = std::max(it->u1, e.uv[0]);
-                            it->v0 = std::min(it->v0, e.uv[1]), it->v1 = std::max(it->v1, e.uv[1]);
-                            it->z += e.pos[2];
-                        }
-                    }
-                }
-                if (!hud && ms.empty()) continue;   // (also the overlays without side elements: the reload prompt)
-                any = true;
-                printf("[hud] viewport prio %d at %.0f,%.0f %.0fx%.0f: sun x %.2f, ambient %.2f, fog %.4f, %u+%u triangles\n",
-                       v.priority, v.x, v.y, v.w, v.h, v.sun_intensity, v.ambient, v.fog_density, v.opaque_count / 3,
-                       v.trans_count / 3);
-                for (const M& m : ms) {
-                    printf("[hud]   %3d x colour %08X flags %08X%s tex %08X (format %u)\n", m.count, m.color,
-                           m.flags & 0x7FFFFFFFu, m.flags & 0x80000000u ? " see-through" : "", m.tex, m.tex >> 28);
-                    {   // the light r3d.frag gives it: sun . normal (clamped) x intensity + ambient
-                        float k = 1.0f / float(3 * m.count);
-                        float nx = m.n[0] * k, ny = m.n[1] * k, nz = m.n[2] * k;
-                        float s = std::max(0.0f, std::min(1.0f, v.sun[0] * nx + v.sun[1] * ny + v.sun[2] * nz));
-                        printf("[hud]       average normal (%.2f %.2f %.2f), z %.1f, uv %.2f..%.2f x %.2f..%.2f, light %.2f\n",
-                               nx, ny, nz, m.z * k, m.u0, m.u1, m.v0, m.v1, s * v.sun_intensity * light_gain_ + v.ambient);
-                    }
-                    if (!(m.flags & R3D_TEXTURED) || !texture_staging_.mapped) continue;
-                    // The same texture as the GPU has it (read back 20 s ago): differences
-                    // mean texture RAM never reached the GPU right
-                    if (tex_readback_.mapped && readback_done_ == m.tex) {
-                        int bx = int(m.tex & 2047u), by = int((m.tex >> 11) & 2047u);
-                        int tw = 32 << ((m.tex >> 22) & 7u), th = std::min(64, 32 << ((m.tex >> 25) & 7u));
-                        const uint16_t* gpu = static_cast<const uint16_t*>(tex_readback_.mapped);
-                        const uint16_t* cpu = static_cast<const uint16_t*>(texture_staging_.mapped);
-                        int diff = 0, gzero = 0;
-                        for (int y = 0; y < th; y++)
-                            for (int x = 0; x < tw; x++) {
-                                uint16_t g = gpu[size_t(y) * 2048 + size_t((bx + x) & 2047)];
-                                uint16_t c = cpu[size_t(((by & 1024) | ((by + y) & 1023))) * 2048 + size_t((bx + x) & 2047)];
-                                diff += g != c;
-                                gzero += g == 0;
-                            }
-                        printf("[hud]       on the GPU: %d of %d texels differ from texture RAM, %d zero\n", diff, tw * th, gzero);
-                    }
-                    if (readback_done_ != m.tex && !readback_asked_) {
-                        readback_asked_ = true;
-                        readback_tex_ = m.tex;
-                    }
-                    // The texture's base level as the GPU gets it (the staging copy of
-                    // texture RAM): raw words, and for format 0 (ARGB1555) its average
-                    // colour and how much of it is see-through
-                    int bx = int(m.tex & 2047u), by = int((m.tex >> 11) & 2047u);
-                    int tw = 32 << ((m.tex >> 22) & 7u), th = 32 << ((m.tex >> 25) & 7u);
-                    const uint16_t* ram = static_cast<const uint16_t*>(texture_staging_.mapped);
-                    auto texel = [&](int x, int y) {
-                        return ram[size_t((by & 1024) | ((by + y) & 1023)) * 2048 + size_t((bx + x) & 2047)];
-                    };
-                    double r = 0, g = 0, b = 0;
-                    int clear = 0, n = 0, zero = 0;
-                    for (int y = 0; y < th; y++)
-                        for (int x = 0; x < tw; x++) {
-                            uint16_t t = texel(x, y);
-                            n++;
-                            zero += t == 0;
-                            if (t & 0x8000) { clear++; continue; }
-                            r += (t >> 10) & 31, g += (t >> 5) & 31, b += t & 31;
-                        }
-                    int solid = n - clear;
-                    printf("[hud]       %dx%d at %d,%d: %d%% see-through, %d%% zero words, solid average RGB %.0f %.0f %.0f "
-                           "(of 31); row %d: %04X %04X %04X %04X %04X %04X %04X %04X\n",
-                           tw, th, bx, by, n ? clear * 100 / n : 0, n ? zero * 100 / n : 0, solid ? r / solid : 0.0,
-                           solid ? g / solid : 0.0, solid ? b / solid : 0.0, th / 2, texel(tw / 2 - 4, th / 2),
-                           texel(tw / 2 - 3, th / 2), texel(tw / 2 - 2, th / 2), texel(tw / 2 - 1, th / 2),
-                           texel(tw / 2, th / 2), texel(tw / 2 + 1, th / 2), texel(tw / 2 + 2, th / 2),
-                           texel(tw / 2 + 3, th / 2));
-                }
-            }
-            if (any) last = now;
-            fflush(stdout);
-            // Reads that texture's rows back from the GPU, for the next report
-            if (readback_asked_) {
-                readback_asked_ = false;
-                if (!tex_readback_.buffer) create_buffer(tex_readback_, 2048 * 64 * 2, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-                if (tex_readback_.mapped) {
-                    readback_done_ = readback_tex_;
-                    int by = int((readback_tex_ >> 11) & 2047u);
-                    int th = std::min(64, 32 << ((readback_tex_ >> 25) & 7u));
-                    transition(f.cmd, texture_ram_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-                    VkBufferImageCopy c{};
-                    c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                    c.imageOffset = {0, by, 0};
-                    c.imageExtent = {2048, uint32_t(std::min(th, 2048 - by)), 1};
-                    vkCmdCopyImageToBuffer(f.cmd, texture_ram_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tex_readback_.buffer,
-                                           1, &c);
-                    transition(f.cmd, texture_ram_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                }
-            }
-        }
-    }
-#endif
-
     // Motion vectors point to where each surface was in the previously
     // displayed image: the same game frame part way back, or the previous
     // game frame (extrapolated backwards when it was itself interpolated)
@@ -2991,7 +2860,7 @@ void R3DRenderer::shutdown() {
     for (Upload& u : uploads_) destroy_image(u.img), destroy_buffer(u.staging);
     uploads_.clear();
     free_spent();
-    for (Buffer* b : {&texture_staging_, &layer_staging_, &vertices_, &atmosphere_uniform_, &tex_readback_}) destroy_buffer(*b);
+    for (Buffer* b : {&texture_staging_, &layer_staging_, &vertices_, &atmosphere_uniform_}) destroy_buffer(*b);
     for (VkSampler sm : {nearest_, linear_, replace_sampler_, overlay_sampler_, sky_sampler_})
         if (sm) vkDestroySampler(dev_, sm, nullptr);
     for (VkPipelineLayout l : {r3d_layout_, compose_layout_, bloom_layout_, ao_layout_, sky_layout_})

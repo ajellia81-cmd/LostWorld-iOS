@@ -121,10 +121,6 @@ public:
     // iOS: the HUD at the screen's sides (the top band, and the 3D elements
     // such as the ammo counter) stays this far from the edges: the safe area
     void set_hud_inset(float px) { hud_inset_ = px > 0 ? px : 0; }
-    // iOS diagnosis: the 3D HUD's textured surfaces show what the shader
-    // works out for them instead of their colour (r3d.frag FEAT_HUD_DEBUG)
-    void toggle_hud_debug() { hud_debug_ = (hud_debug_ + 1) % 4; }
-    int hud_debug() const { return hud_debug_; }
     // false while the top of the 2D screen is a picture rather than a HUD
     void set_hud_band(bool hud) { hud_band_ = hud; }
     // Position between the previous (0) and the current (1) game frame
@@ -366,10 +362,6 @@ private:
     // FEAT_ bits there); the ones turned off are left out of the shader, which
     // then keeps fewer registers live per pixel. ~0u: everything (Windows)
     uint32_t features_ = ~0u;
-    int hud_debug_ = 0;
-    Buffer tex_readback_;            // iOS diagnosis: texture RAM rows read back from the GPU
-    uint32_t readback_tex_ = 0, readback_done_ = 0;   // asked for, in the buffer
-    bool readback_asked_ = false;
     uint32_t feature_mask() const;
     const R3DScene* scene_ = nullptr;
     bool has_world_ = false;   // a viewport of scene_ shows the game world
