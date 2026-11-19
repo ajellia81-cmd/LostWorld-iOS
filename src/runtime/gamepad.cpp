@@ -93,6 +93,7 @@ void Gamepads::open(uint32_t id) {
     st.has_gyro = SDL_GamepadHasSensor(p, SDL_SENSOR_GYRO) && SDL_SetGamepadSensorEnabled(p, SDL_SENSOR_GYRO, true);
     if (st.has_gyro && SDL_GamepadHasSensor(p, SDL_SENSOR_ACCEL)) SDL_SetGamepadSensorEnabled(p, SDL_SENSOR_ACCEL, true);
     changed_ = true;
+    if (set_.rumble > 0) SDL_RumbleGamepad(p, 1, 1, 1), SDL_RumbleGamepadTriggers(p, 1, 1, 1);   // (as revive: ready before the first shot)
     printf("[gamepad] %d: %s%s\n", i + 1, st.name.c_str(), st.has_gyro ? " (with gyroscope)" : "");
 }
 
