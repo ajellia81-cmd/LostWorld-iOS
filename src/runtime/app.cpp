@@ -2110,6 +2110,7 @@ void App::on_app_active() {
     compat_set_focus(true);
     g_sound.set_muted(g_boot_skip);
     platform_audio_suspend(false);
+    g_pads.revive();   // (their vibration stopped while away)
     presenter.recreate_swapchain();   // the layer may have changed while away
     printf("[app] back in front\n");
 }

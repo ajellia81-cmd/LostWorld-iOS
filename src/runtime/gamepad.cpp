@@ -107,6 +107,33 @@ void Gamepads::close(uint32_t id) {
     printf("[gamepad] %d disconnected\n", i + 1);
 }
 
+void Gamepads::revive() {
+    if (!ok_) return;
+    uint64_t t0 = SDL_GetTicksNS();
+    int n = 0;
+    for (int i = 0; i < MAX; i++) {
+        Slot& s = slot_[i];
+        if (!s.pad) continue;
+        SDL_CloseGamepad(s.pad);
+        s.pad = SDL_OpenGamepad(s.id);
+        if (!s.pad) {   // (gone while away: as a disconnection)
+            slot_[i] = Slot{};
+            state_[i].connected = false;
+            state_[i].fire = state_[i].reload = false;
+            changed_ = true;
+            continue;
+        }
+        PadState& st = state_[i];
+        if (st.has_gyro) {
+            SDL_SetGamepadSensorEnabled(s.pad, SDL_SENSOR_GYRO, true);
+            if (SDL_GamepadHasSensor(s.pad, SDL_SENSOR_ACCEL)) SDL_SetGamepadSensorEnabled(s.pad, SDL_SENSOR_ACCEL, true);
+        }
+        if (set_.rumble > 0) SDL_RumbleGamepad(s.pad, 0, 0, 0);   // (starts its vibration engine, silently)
+        n++;
+    }
+    if (n) printf("[gamepad] %d pad(s) opened again, vibration ready (%.0f ms)\n", n, (SDL_GetTicksNS() - t0) / 1e6);
+}
+
 // Gravity, low-passed from the accelerometer, and how much the pad shakes
 void Gamepads::accel_sample(Slot& s, const float* a) {
     float m = std::sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);

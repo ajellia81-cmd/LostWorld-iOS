@@ -54,6 +54,11 @@ public:
 
     bool init();   // false: no gamepads this run (the game works without them)
     void shutdown();
+    // iOS, back from the background: the pads' vibration engines stopped
+    // there and SDL never starts them again, so each pad is opened afresh
+    // and its vibration started at once (the hitch while the screen comes
+    // back and the game is paused, not at the first shot)
+    void revive();
     // Reads the pads. `focused`: the window is in front (otherwise the pads
     // are idle); `menu`: a menu has the controls, so the d-pad, the left stick
     // and the buttons become PadKeys and the sight stays where it is
