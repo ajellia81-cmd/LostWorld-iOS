@@ -128,7 +128,14 @@ void Gamepads::revive() {
             SDL_SetGamepadSensorEnabled(s.pad, SDL_SENSOR_GYRO, true);
             if (SDL_GamepadHasSensor(s.pad, SDL_SENSOR_ACCEL)) SDL_SetGamepadSensorEnabled(s.pad, SDL_SENSOR_ACCEL, true);
         }
-        if (set_.rumble > 0) SDL_RumbleGamepad(s.pad, 0, 0, 0);   // (starts its vibration engine, silently)
+        if (set_.rumble > 0) {
+            // Its vibration started for a millisecond at the faintest level:
+            // that makes the engine and each motor's player (a zero level
+            // stops short of the players, which the first shot then made,
+            // a long hitch at times)
+            SDL_RumbleGamepad(s.pad, 1, 1, 1);
+            SDL_RumbleGamepadTriggers(s.pad, 1, 1, 1);
+        }
         n++;
     }
     if (n) printf("[gamepad] %d pad(s) opened again, vibration ready (%.0f ms)\n", n, (SDL_GetTicksNS() - t0) / 1e6);
