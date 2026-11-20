@@ -415,10 +415,11 @@ static bool poll_gamepads(HWND hwnd) {
         if (fire) pl.trigger = true;
         if (reload) pl.offscreen = true;
         if (fire && !fire_was[i]) {
-            g_pads.rumble(i, 0.2f, 0.5f, 70);
-            g_pads.rumble_triggers(i, 0.0f, 0.6f, 60);
+            g_pads.rumble(i, 0.5f, 0.85f, 90);
+            g_pads.rumble_triggers(i, 0.0f, 1.0f, 90);
         } else if (reload && !reload_was[i]) {
-            g_pads.rumble(i, 0.35f, 0.0f, 50);
+            g_pads.rumble(i, 0.6f, 0.2f, 70);
+            g_pads.rumble_triggers(i, 0.8f, 0.0f, 70);
         }
         fire_was[i] = fire, reload_was[i] = reload;
         if (pad.back) pause = true;
@@ -437,8 +438,10 @@ static bool poll_gamepads(HWND hwnd) {
         uint32_t lives = rd32(p ? 0x1A377C : 0x1A3720);
         if (g_inputs.p[p].playing && lives < lives_was[p])
             for (int i = 0; i < Gamepads::MAX; i++)
-                if (g_pads.pad(i).connected && pad_player(i, connected) == p && g_pads.now() - g_pads.pad(i).last_used < 60)
-                    g_pads.rumble(i, 0.9f, 0.7f, 320);
+                if (g_pads.pad(i).connected && pad_player(i, connected) == p && g_pads.now() - g_pads.pad(i).last_used < 60) {
+                    g_pads.rumble(i, 1.0f, 0.9f, 380);
+                    g_pads.rumble_triggers(i, 1.0f, 1.0f, 300);
+                }
         lives_was[p] = lives;
     }
     return pause;

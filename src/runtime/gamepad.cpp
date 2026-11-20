@@ -17,7 +17,7 @@ constexpr float STICK_DEAD = 0.15f, STICK_FULL = 0.92f;
 constexpr float TRIGGER_DOWN = 0.35f;
 constexpr float TRIGGER_UP = 0.2f;          // a held trigger is let go below this
 constexpr double BUTTON_SETTLE = 0.04;      // seconds a button stays down after the pad says up
-constexpr float RUMBLE_STRENGTH[4] = {0.0f, 0.45f, 0.75f, 1.0f};
+constexpr float RUMBLE_STRENGTH[4] = {0.0f, 0.5f, 0.85f, 1.0f};   // OFF, LOW, MEDIUM, HIGH
 
 // 1..10 around 5 = 1: each step about 19% faster (stick) or 32% (gyroscope)
 float speed_step(int v, float per_doubling) { return std::exp2(float(v - 5) / per_doubling); }
