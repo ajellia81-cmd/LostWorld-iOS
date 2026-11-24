@@ -79,11 +79,6 @@ void player_join(int player) {
     if (g_join_at[player] < 0) g_join_at[player] = now_seconds();
 }
 
-// The game's START alone, no credit (a player already in the game)
-void player_start(int player) {
-    if (g_join_at[player] < 0) g_join_at[player] = now_seconds() - 0.25;
-}
-
 void join_update() {
     double now = now_seconds();
     for (int p = 0; p < 2; p++) {

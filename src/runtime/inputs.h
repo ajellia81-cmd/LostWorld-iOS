@@ -93,7 +93,6 @@ int pad_player(int pad_index, uint32_t connected);
 // arcade asks for. Driven by the clock, so whoever polls the controls (the
 // window at the monitor's rate) calls join_update() each time.
 void player_join(int player);
-void player_start(int player);   // START only, without a credit
 void join_update();
 
 // --auto "coin@1500,start@1600": scheduled presses (6 frames each); a "2"
