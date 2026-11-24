@@ -351,8 +351,9 @@ static bool crosshair_idle(int p, const PlayerAim& aim) {
 
 // Gamepads (gamepad.h), after the keyboard and mouse: their buttons are added
 // to those of the player pad_player() gives them. The first pad shares player
-// 1 with the mouse, and whichever moved last aims. START is a coin and the
-// game's START; BACK pauses. Returns true when a pad asks for the pause menu.
+// 1 with the mouse, and whichever moved last aims. START joins the game, takes
+// player 1's sight from the mouse or, pressed by the pad that plays, pauses
+// it; BACK pauses. Returns true when a pad asks for the pause menu.
 static Gamepads g_pads;
 static GamepadSettings g_pad_settings;
 
@@ -421,9 +422,13 @@ static bool poll_gamepads(HWND hwnd) {
         }
         fire_was[i] = fire, reload_was[i] = reload;
         if (pad.back) pause = true;
-        if (pad.start) {   // the cabinet's coin and START, always (BACK is the pause menu's)
-            if (p == 0) g_p1_pad = i;   // (this pad aims for player 1 from now)
-            player_join(p);
+        if (pad.start) {
+            if (pl.playing && (p == 1 || g_p1_pad == i)) pause = true;
+            else if (pl.playing) g_p1_pad = i;   // player 1 plays with the mouse (a pad plugged in mid-game)
+            else {
+                if (p == 0) g_p1_pad = i;   // this pad starts player 1's game
+                player_join(p);
+            }
         }
     }
     // A hit takes a life (game_ram.md): the pads of that player that were used
