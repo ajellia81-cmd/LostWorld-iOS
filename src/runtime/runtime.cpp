@@ -267,6 +267,21 @@ uint8_t dev_read8(uint32_t a) {
     if (a == 0xF0080000) return 0x00;   // MIDI data port
     if (a == 0xF0080004) return 0x83;   // MIDI control port
     if (a == 0xF0140001) return 0x03;   // RTC battery voltage
+    // The RTC (72421): 16 registers of one BCD digit, at the top byte of each
+    // 32-bit word (as MAME). They read the time of day: they were all 0, the
+    // same clock at every start, and what the game draws from it (the stage
+    // order of SHUFFLE in the route selection) came out the same every time
+    if (a >= 0xF0140000 && a < 0xF0140040 && (a & 3) == 0) {
+        int reg = int(a - 0xF0140000) / 4;
+        time_t now = time(nullptr);
+        const tm* t = localtime(&now);
+        if (!t) return 0;
+        int v[13] = {t->tm_sec % 10, t->tm_sec / 10, t->tm_min % 10, t->tm_min / 10, t->tm_hour % 10, t->tm_hour / 10,
+                     t->tm_mday % 10, t->tm_mday / 10, (t->tm_mon + 1) % 10, (t->tm_mon + 1) / 10,
+                     t->tm_year % 10, (t->tm_year / 10) % 10, t->tm_wday};
+        if (reg < 13) return uint8_t(v[reg]);
+        return reg == 15 ? 0x04 : 0x00;   // CF: 24-hour clock
+    }
     if (a == 0xF0040004) {
         bool bank1 = *dev_ptr(0xF0040000) & 0x01;   // bank selected by writing 0xF0040000
         uint8_t v = g_inputs.system_port(bank1);
