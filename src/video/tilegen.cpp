@@ -327,7 +327,13 @@ void TileGen::compose(const uint8_t* vram, const Output& out, const TextHD* text
         int shown_by[4] = {0, 0, 0, 0};   // back pixels on screen each layer shows on this row
         for (int x = -BACK_MARGIN; x < SCREEN_W + BACK_MARGIN; x++) {
             bool on_screen = x >= 0 && x < SCREEN_W;
-            int column = std::clamp(x, 0, SCREEN_W - 1) / 32;
+            // Off the screen (a widened view) the mask column is the one of the
+            // screen pixel that shows the same column of the 512-pixel picture:
+            // what the mask hides there (the TOTAL SCORE's bars, kept on a
+            // layer the screen does not show at that place) stays hidden. The
+            // 16 columns the screen never shows take the nearest edge's.
+            int same_px = x < 0 ? x + 512 : x >= 512 ? x - 512 : x;
+            int column = std::clamp(same_px, 0, SCREEN_W - 1) / 32;
             int back_layer = -1;
             // Pair B/B' first, then A/A' on top; the mask picks primary or alternate
             for (int pair = 1; pair >= 0; pair--) {

@@ -1,7 +1,8 @@
 # Rotulo redibujado con tools/backdrops/resultados_stage.txt desde out/2d/captura_8652
 cover
-match 98
-# match 98: the banners of the other stages differ from this one only in their digits (about 94% the same)
+match 100
+# match 100: the banners of the other stages and chapters differ from this one only in their digits
+# (another stage about 94% the same, another chapter of stage 1 over 98%): every cell must be there
 rect 0 3 62 6
 b9b23f3a46fd0825
 b9b23f3a46fd0825
