@@ -423,9 +423,17 @@ static bool poll_gamepads(HWND hwnd) {
         fire_was[i] = fire, reload_was[i] = reload;
         if (pad.back) pause = true;
         if (pad.start) {
-            if (pl.playing && (p == 1 || g_p1_pad == i)) pause = true;
-            else if (pl.playing) g_p1_pad = i;   // player 1 plays with the mouse (a pad plugged in mid-game)
-            else {
+            // In a game START always pauses: also between its stages and in
+            // its scenes, where the player's slot is neither playing nor out
+            // (a START there joined, which put a credit in). It joins only a
+            // player who is out of it: not in yet, or on the CONTINUE count
+            // (slot 0 or 3, game_ram.md)
+            uint8_t slot = rd8(0x1A3791 + 0x10 * p);
+            bool in_game = rd32(0x1A6164) == 0xB && rd32(0x1C2AD8) == 0xC;
+            if (pl.playing || (in_game && slot != 0 && slot != 3)) {
+                if (p == 0) g_p1_pad = i;   // (player 1 played with the mouse: the pad takes the sight too)
+                pause = true;
+            } else {
                 if (p == 0) g_p1_pad = i;   // this pad starts player 1's game
                 player_join(p);
             }
