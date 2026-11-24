@@ -351,9 +351,8 @@ static bool crosshair_idle(int p, const PlayerAim& aim) {
 
 // Gamepads (gamepad.h), after the keyboard and mouse: their buttons are added
 // to those of the player pad_player() gives them. The first pad shares player
-// 1 with the mouse, and whichever moved last aims. START joins the game, takes
-// player 1's sight from the mouse or, pressed by the pad that plays, pauses
-// it; BACK pauses. Returns true when a pad asks for the pause menu.
+// 1 with the mouse, and whichever moved last aims. START is the game's START
+// (joining with a credit when the player is out of the game); BACK pauses. Returns true when a pad asks for the pause menu.
 static Gamepads g_pads;
 static GamepadSettings g_pad_settings;
 
@@ -423,16 +422,16 @@ static bool poll_gamepads(HWND hwnd) {
         fire_was[i] = fire, reload_was[i] = reload;
         if (pad.back) pause = true;
         if (pad.start) {
-            // In a game START always pauses: also between its stages and in
-            // its scenes, where the player's slot is neither playing nor out
-            // (a START there joined, which put a credit in). It joins only a
-            // player who is out of it: not in yet, or on the CONTINUE count
-            // (slot 0 or 3, game_ram.md)
+            // START is the game's START (BACK is the pause menu's): a player
+            // in the game (playing, or between its stages and in its scenes,
+            // where the slot is neither playing nor out) gets the press
+            // alone; one out of it (not in yet, or on the CONTINUE count:
+            // slot 0 or 3, game_ram.md) joins, with a credit
             uint8_t slot = rd8(0x1A3791 + 0x10 * p);
             bool in_game = rd32(0x1A6164) == 0xB && rd32(0x1C2AD8) == 0xC;
             if (pl.playing || (in_game && slot != 0 && slot != 3)) {
                 if (p == 0) g_p1_pad = i;   // (player 1 played with the mouse: the pad takes the sight too)
-                pause = true;
+                player_start(p);
             } else {
                 if (p == 0) g_p1_pad = i;   // this pad starts player 1's game
                 player_join(p);
