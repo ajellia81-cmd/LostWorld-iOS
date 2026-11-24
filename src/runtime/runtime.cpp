@@ -1260,10 +1260,18 @@ static bool arcade_entry_frame() {
         from = select_at = 0;
         return true;
     };
+    // (a random wait before the credit: the game always starts from the same
+    // home state with the coin on the same frame, which made its random draws,
+    // SHUFFLE's stage order among them, the same every time; on an arcade the
+    // coin comes whenever a player puts it in)
+    static uint64_t wait = 0;
     if (g_arcade_entry == 1) {
         g_arcade_entry = 2;
         from = g_frame, select_at = 0;
         p.trigger = p.offscreen = false;
+        static uint32_t seed = uint32_t(time(nullptr)) * 2654435761u;
+        seed = seed * 1664525u + 1013904223u;
+        wait = (seed >> 16) % 240;
     }
     uint32_t select = rd32(0x1C2AD8);   // 0 attract, 1-2 choosing, 0xC playing
     if (!g_logo_up || game_state_pending()) {   // the boot screens, or a state still being put back
@@ -1279,7 +1287,11 @@ static bool arcade_entry_frame() {
     if (select == 0xC) return finish("in a game already");
     if (select == 0) {
         if (g_frame - from > 9000) return finish("route selection not reached, given up");
-        uint64_t k = (g_frame - from) % 300;
+        if (g_frame - from < wait) {
+            p.coin = p.start = false;
+            return false;
+        }
+        uint64_t k = (g_frame - from - wait) % 300;
         p.coin = k < 6;
         p.start = k % 60 >= 30 && k % 60 < 36;
         return false;

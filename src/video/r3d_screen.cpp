@@ -98,3 +98,30 @@ void r3d_strip_letterbox(R3DScene& out) {
         }
     }
 }
+
+// A widened view shows what lies beside the 4:3 screen. For the world that is
+// the point; the screens drawn in 3D without one (the TOTAL SCORE's ranking
+// bars, which slide in from the left and stay with only their end on the
+// screen) keep things there the arcade never showed: those go.
+void r3d_hide_outside(R3DScene& out) {
+    if (out.viewports.empty()) return;
+    // (with a world on screen, only the layers over it: the scene's own layer
+    // may hold more of it than was recognised)
+    bool world = false;
+    for (const R3DViewport& v : out.viewports) world = world || v.world;
+    int scene_priority = out.viewports.front().priority;
+    for (const R3DViewport& v : out.viewports) {
+        if (world && v.priority == scene_priority) continue;
+        if (v.world || v.x > 0.5f || v.w < 495.5f) continue;   // (only full views, 496 wide, are widened)
+        for (int pass = 0; pass < 2; pass++) {
+            uint32_t first = pass ? v.trans_first : v.opaque_first, count = pass ? v.trans_count : v.opaque_count;
+            for (uint32_t t = 0; t + 2 < count; t += 3) {
+                R3DVertex* tri = &out.vertices[first + t];
+                float b[4];
+                if (!screen_bbox(v, tri, b)) continue;
+                if (b[2] > v.x + 0.5f && b[0] < v.x + v.w - 0.5f) continue;   // on the screen, if only in part
+                for (int k = 1; k < 3; k++) memcpy(tri[k].pos, tri[0].pos, sizeof(tri[0].pos));
+            }
+        }
+    }
+}

@@ -114,10 +114,17 @@ struct Placed {
 // The priority of the scene's own layer (the first viewport's), set per frame:
 // the growing window is not always the one track_world picks as the world
 static int g_scene_priority = -1;
+// The growing window: the scene's layer, from the top left corner, a part of
+// the screen of the screen's own shape (the ending's credits keep a band at
+// the top in a viewport of their own, which is not it)
+static bool growing_window(const R3DViewport& v, int scene_priority) {
+    return v.priority == scene_priority && v.x <= 0.5f && v.y <= 0.5f && v.w > 0.0f && v.w < SCREEN_W - 0.5f &&
+           std::fabs(v.w / SCREEN_W - v.h / SCREEN_H) < 0.06f;
+}
 static Placed place(const R3DViewport& v, const ScreenLayout& lay) {
     const float widen = lay.view_w / SCREEN_W;
     if (v.x <= 0.5f && v.w >= SCREEN_W - 0.5f) return {0.0f, lay.view_w, true};
-    if (v.priority == g_scene_priority && v.x <= 0.5f && v.y <= 0.5f && v.w > 0.0f) return {0.0f, v.w * widen, true};
+    if (growing_window(v, g_scene_priority)) return {0.0f, v.w * widen, true};
     return {v.x + lay.game_x0, v.w, false};
 }
 
@@ -1252,7 +1259,7 @@ bool R3DRenderer::back_layer_extended() const {
     if (!scene_ || scene_->viewports.empty()) return true;
     int scene_priority = scene_->viewports.front().priority;
     for (const R3DViewport& v : scene_->viewports)
-        if (v.priority == scene_priority && v.x <= 0.5f && (v.w >= SCREEN_W - 0.5f || (v.y <= 0.5f && v.w > 0.0f)))
+        if ((v.priority == scene_priority && v.x <= 0.5f && v.w >= SCREEN_W - 0.5f) || growing_window(v, scene_priority))
             return true;
     return false;
 }

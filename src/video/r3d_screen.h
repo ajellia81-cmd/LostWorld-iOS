@@ -12,3 +12,5 @@ void r3d_anchor_hud(R3DScene& out);
 // screen): small near geometry of an overlay holding that point, unless it
 // also holds (keep_x, keep_y), another player's sight
 void r3d_hide_sight(R3DScene& out, float x, float y, float keep_x, float keep_y);
+// Off the 4:3 screen in the widened full views that are not the world: gone
+void r3d_hide_outside(R3DScene& out);
