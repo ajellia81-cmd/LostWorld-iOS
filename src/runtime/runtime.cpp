@@ -9,6 +9,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -1260,18 +1261,10 @@ static bool arcade_entry_frame() {
         from = select_at = 0;
         return true;
     };
-    // (a random wait before the credit: the game always starts from the same
-    // home state with the coin on the same frame, which made its random draws,
-    // SHUFFLE's stage order among them, the same every time; on an arcade the
-    // coin comes whenever a player puts it in)
-    static uint64_t wait = 0;
     if (g_arcade_entry == 1) {
         g_arcade_entry = 2;
         from = g_frame, select_at = 0;
         p.trigger = p.offscreen = false;
-        static uint32_t seed = uint32_t(time(nullptr)) * 2654435761u;
-        seed = seed * 1664525u + 1013904223u;
-        wait = (seed >> 16) % 240;
     }
     uint32_t select = rd32(0x1C2AD8);   // 0 attract, 1-2 choosing, 0xC playing
     if (!g_logo_up || game_state_pending()) {   // the boot screens, or a state still being put back
@@ -1287,11 +1280,7 @@ static bool arcade_entry_frame() {
     if (select == 0xC) return finish("in a game already");
     if (select == 0) {
         if (g_frame - from > 9000) return finish("route selection not reached, given up");
-        if (g_frame - from < wait) {
-            p.coin = p.start = false;
-            return false;
-        }
-        uint64_t k = (g_frame - from - wait) % 300;
+        uint64_t k = (g_frame - from) % 300;
         p.coin = k < 6;
         p.start = k % 60 >= 30 && k % 60 < 36;
         return false;
@@ -1299,6 +1288,17 @@ static bool arcade_entry_frame() {
     p.coin = p.start = false;
     if (!select_at) select_at = g_frame;
     if (g_frame - select_at < 20) return false;   // its first frames drawn
+    // The game's random numbers (an LCG at 0x1A8BDC, fn 0xAD5F4) are seeded
+    // once at power-on from the RTC (fn 0x38B3C: day + seconds), and the
+    // route selection's SHUFFLE draws its first stage from them (fn 0x7F8EC,
+    // ten swaps of the stage list at 0x1C2AFC). Here the game always comes
+    // from the same home state with the same frames played since: the same
+    // draws every time. On an arcade the attract has run for however long
+    // before a coin; here they get a seed of their own
+    uint32_t seed_was = rd32(0x1A8BDC);
+    uint32_t seed = uint32_t(std::chrono::steady_clock::now().time_since_epoch().count() * 2654435761ull >> 7);
+    wr32(0x1A8BDC, seed);
+    printf("[play] the game's random numbers seeded again (%08X, were at %08X)\n", seed, seed_was);
     return finish("route selection");
 }
 
@@ -1332,6 +1332,9 @@ static void attract_guard_frame() {
         game_on = false;
         return;
     }
+    if (mode == 0xB && select == 0xC && !game_on)   // (the stage order the route selection gave)
+        printf("[play] stage order %u %u %u %u %u\n", rd32(0x1C2AFC), rd32(0x1C2B00), rd32(0x1C2B04), rd32(0x1C2B08),
+               rd32(0x1C2B0C));
     if (mode == 0xB && select == 0xC) game_on = true;   // past the route selection: a game played
     if (mode != 0 && mode != 1) return;   // still a game (0xA, 0x14 and 0x15 between stages)
     if (!game_on) return;
