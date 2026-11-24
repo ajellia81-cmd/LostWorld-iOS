@@ -105,14 +105,17 @@ void r3d_strip_letterbox(R3DScene& out) {
 // screen) keep things there the arcade never showed: those go.
 void r3d_hide_outside(R3DScene& out) {
     if (out.viewports.empty()) return;
-    // (with a world on screen, only the layers over it: the scene's own layer
-    // may hold more of it than was recognised)
-    bool world = false;
-    for (const R3DViewport& v : out.viewports) world = world || v.world;
-    int scene_priority = out.viewports.front().priority;
+    // Only on screens with no world at all: in a stage the scenery spreads
+    // over other layers than the one recognised as the world, and what of it
+    // lies beside 4:3 is the widened view's point (stage 3's buildings had
+    // holes beside the 4:3 area)
+    for (const R3DViewport& v : out.viewports)
+        if (v.world) return;
+    // (and only on light screens: a stage whose scenery is not recognised as
+    // the world for a moment, its camera flying in, has thousands)
+    if (out.vertices.size() > 3 * 2000) return;
     for (const R3DViewport& v : out.viewports) {
-        if (world && v.priority == scene_priority) continue;
-        if (v.world || v.x > 0.5f || v.w < 495.5f) continue;   // (only full views, 496 wide, are widened)
+        if (v.x > 0.5f || v.w < 495.5f) continue;   // (only full views, 496 wide, are widened)
         for (int pass = 0; pass < 2; pass++) {
             uint32_t first = pass ? v.trans_first : v.opaque_first, count = pass ? v.trans_count : v.opaque_count;
             for (uint32_t t = 0; t + 2 < count; t += 3) {
