@@ -27,6 +27,7 @@
 #include <windowsx.h>   // GET_X_LPARAM
 
 #include "bosses.h"
+#include "disk_writer.h"
 #include "gamepad.h"
 #include "inputs.h"
 #include "options.h"
@@ -2098,6 +2099,7 @@ void App::on_app_inactive() {
         }
         g_sound.set_muted(true);
         platform_audio_suspend(true);
+        disk_flush();   // (the saves still being written: iOS may end the app while it is away)
         printf("[app] in the background: paused\n");
         fflush(stdout);
     }
